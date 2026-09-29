@@ -1,0 +1,9 @@
+{
+  "source_key": "demo:ai-infrastructure",
+  "source_type": "demo",
+  "source_url": "https://example.org/research/ai-infrastructure-shift",
+  "source_text": "Example analyst Maya Chen argues that smaller, specialized models will gain share in routine inference because they can reduce cost and latency. This synthetic example does not assert a real-world fact.",
+  "person": "Maya Chen (demo actor)",
+  "belief": "Smaller and specialized models will gain share in routine inference due to cost and latency advantages (demo proposition)",
+  "content": "AI infrastructure shift analysis (synthetic demo content)"
+}

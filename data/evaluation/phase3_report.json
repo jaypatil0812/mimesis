@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-09-29",
+  "dataset": "data/evaluation/phase3_examples.json",
+  "examples": 30,
+  "entity_extraction": {"precision": 1.0, "recall": 1.0, "f1": 1.0, "true_positive": 24, "false_positive": 0, "false_negative": 0},
+  "entity_resolution": {"quality": 1.0, "checks_passed": 3, "checks_total": 3},
+  "belief_extraction": {"precision": 1.0, "recall": 1.0, "f1": 1.0, "true_positive": 19, "false_positive": 0, "false_negative": 0},
+  "relationship_extraction": {"precision": 1.0, "recall": 1.0, "f1": 1.0, "true_positive": 41, "false_positive": 0, "false_negative": 0},
+  "token_usage": {
+    "actual_llm_tokens": 0,
+    "actual_llm_tokens_per_evidence": 0.0,
+    "estimated_fallback_tokens": 25,
+    "estimated_fallback_tokens_per_evidence": 0.83,
+    "per_evidence": {
+      "e01": 0, "e02": 0, "e03": 0, "e04": 0, "e05": 0,
+      "e06": 0, "e07": 0, "e08": 0, "e09": 0, "e10": 0,
+      "e11": 0, "e12": 0, "e13": 0, "e14": 0, "e15": 0,
+      "e16": 0, "e17": 0, "e18": 0, "e19": 0, "e20": 0,
+      "e21": 0, "e22": 0, "e23": 0, "e24": 0, "e25": 0,
+      "e26": 25, "e27": 0, "e28": 0, "e29": 0, "e30": 0
+    }
+  },
+  "graph_projection": {"evidence_processed": 30, "beliefs_resolved": 19, "assertions_written": 41, "edges_written": 41, "llm_calls": 0, "failures": 0},
+  "notes": "Scores apply only to the frozen manually inspectable fixture; they are not open-world quality claims."
+}

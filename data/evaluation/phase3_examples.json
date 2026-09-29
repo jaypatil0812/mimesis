@@ -1,0 +1,40 @@
+{
+  "description": "Thirty manually inspectable deterministic Evidence-to-Graph examples for AI infrastructure.",
+  "examples": [
+    {"id":"e01","text":"Small language models","metadata":{},"entities":[],"beliefs":[],"relationships":[]},
+    {"id":"e02","text":"Small specialized models will replace frontier models for many enterprise workloads.","metadata":{},"entities":[],"beliefs":["Small specialized models will replace frontier models for many enterprise workloads"],"relationships":["EXPRESSES"]},
+    {"id":"e03","text":"Sam Altman (@sama), CEO of OpenAI, said that specialized models will serve many enterprise workloads.","metadata":{},"entities":["Person:Sam Altman","Company:OpenAI"],"beliefs":["specialized models will serve many enterprise workloads"],"relationships":["WORKS_AT","EXPRESSES"]},
+    {"id":"e04","text":"Sam Altman (@sama), founder of OpenAI, believes that inference demand will increase through 2027.","metadata":{},"entities":["Person:Sam Altman","Company:OpenAI"],"beliefs":["inference demand will increase through 2027"],"relationships":["FOUNDED","EXPRESSES"]},
+    {"id":"e05","text":"Anthropic launched Claude 4.","metadata":{},"entities":["Company:Anthropic","Product:Claude 4","Event:Anthropic launched Claude 4"],"beliefs":[],"relationships":["BUILDS","PARTICIPATED_IN","PARTICIPATED_IN"]},
+    {"id":"e06","text":"OpenAI released GPT 5.","metadata":{},"entities":["Company:OpenAI","Product:GPT 5","Event:OpenAI released GPT 5"],"beliefs":[],"relationships":["BUILDS","PARTICIPATED_IN","PARTICIPATED_IN"]},
+    {"id":"e07","text":"Task-specific models reduce inference cost for enterprise inference.","metadata":{},"entities":[],"beliefs":["Task-specific models reduce inference cost for enterprise inference"],"relationships":["EXPRESSES"]},
+    {"id":"e08","text":"Will small models replace frontier systems?","metadata":{},"entities":[],"beliefs":[],"relationships":[]},
+    {"id":"e09","text":"Meta introduced Llama 5.","metadata":{},"entities":["Company:Meta","Product:Llama 5","Event:Meta introduced Llama 5"],"beliefs":[],"relationships":["BUILDS","PARTICIPATED_IN","PARTICIPATED_IN"]},
+    {"id":"e10","text":"Enterprises should route routine workloads to specialized models.","metadata":{},"entities":[],"beliefs":["Enterprises should route routine workloads to specialized models"],"relationships":["EXPRESSES"]},
+    {"id":"e11","text":"Specialized models drive adoption because they reduce latency.","metadata":{},"entities":[],"beliefs":["Specialized models drive adoption because they reduce latency"],"relationships":["EXPRESSES"]},
+    {"id":"e12","text":"Frontier models will not disappear from high-stakes research.","metadata":{},"entities":[],"beliefs":["Frontier models will not disappear from high-stakes research"],"relationships":["EXPRESSES"]},
+    {"id":"e13","text":"Only some enterprise workloads will move to smaller models.","metadata":{},"entities":[],"beliefs":["Only some enterprise workloads will move to smaller models"],"relationships":["EXPRESSES"]},
+    {"id":"e14","text":"Specialized models will gain deployment share from 2026 through 2028.","metadata":{},"entities":[],"beliefs":["Specialized models will gain deployment share from 2026 through 2028"],"relationships":["EXPRESSES"]},
+    {"id":"e15","text":"We believe efficient models will enable more edge devices.","metadata":{"author_handle":"mira","did":"did:plc:mira"},"entities":["Person:mira"],"beliefs":["We believe efficient models will enable more edge devices"],"relationships":["PUBLISHED","EXPRESSES","BELIEVES"]},
+    {"id":"e16","text":"I think open weights can increase infrastructure competition.","metadata":{"author_handle":"builder42"},"entities":["Person:builder42"],"beliefs":["I think open weights can increase infrastructure competition"],"relationships":["PUBLISHED","EXPRESSES","BELIEVES"]},
+    {"id":"e17","text":"Geoffrey Hinton","metadata":{"openalex_resource":"authors","openalex_id":"https://openalex.org/A1"},"entities":["Person:Geoffrey Hinton"],"beliefs":[],"relationships":["PUBLISHED"]},
+    {"id":"e18","text":"Massachusetts Institute of Technology","metadata":{"openalex_resource":"institutions","openalex_id":"https://openalex.org/I1"},"entities":["Company:Massachusetts Institute of Technology"],"beliefs":[],"relationships":["PUBLISHED"]},
+    {"id":"e19","text":"Inference optimization and model routing","metadata":{},"entities":[],"beliefs":[],"relationships":[]},
+    {"id":"e20","text":"Model routers can reduce serving cost across enterprise workloads.","metadata":{},"entities":[],"beliefs":["Model routers can reduce serving cost across enterprise workloads"],"relationships":["EXPRESSES"]},
+    {"id":"e21","text":"Small models cannot replace frontier systems for every workload.","metadata":{},"entities":[],"beliefs":["Small models cannot replace frontier systems for every workload"],"relationships":["EXPRESSES"]},
+    {"id":"e22","text":"Which inference stack is cheaper?","metadata":{},"entities":[],"beliefs":[],"relationships":[]},
+    {"id":"e23","text":"Accept cookies. Subscribe to read more.","metadata":{},"entities":[],"beliefs":[],"relationships":[]},
+    {"id":"e24","text":"On-device models may enable private consumer applications.","metadata":{},"entities":[],"beliefs":["On-device models may enable private consumer applications"],"relationships":["EXPRESSES"]},
+    {"id":"e25","text":"NVIDIA launched TensorRT Edge because efficient runtimes will drive edge deployment.","metadata":{},"entities":["Company:NVIDIA","Product:TensorRT Edge","Event:NVIDIA launched TensorRT Edge"],"beliefs":["NVIDIA launched TensorRT Edge because efficient runtimes will drive edge deployment"],"relationships":["BUILDS","PARTICIPATED_IN","PARTICIPATED_IN","EXPRESSES"]},
+    {"id":"e26","text":"The conference included several panels about infrastructure architecture and deployment operations.","metadata":{},"entities":[],"beliefs":[],"relationships":[]},
+    {"id":"e27","text":"A quantized model is cheaper for repetitive classification workloads.","metadata":{},"entities":[],"beliefs":["A quantized model is cheaper for repetitive classification workloads"],"relationships":["EXPRESSES"]},
+    {"id":"e28","text":"Open model ecosystems can enable regional AI infrastructure.","metadata":{},"entities":[],"beliefs":["Open model ecosystems can enable regional AI infrastructure"],"relationships":["EXPRESSES"]},
+    {"id":"e29","text":"Alex Smith, CEO of Acme Systems, said that model routing will reduce cost.","metadata":{},"entities":["Person:Alex Smith","Company:Acme Systems"],"beliefs":["model routing will reduce cost"],"relationships":["WORKS_AT","EXPRESSES"]},
+    {"id":"e30","text":"Alex Smith, CTO at Beta Compute, predicts that specialized inference will increase demand.","metadata":{},"entities":["Person:Alex Smith","Company:Beta Compute"],"beliefs":["specialized inference will increase demand"],"relationships":["WORKS_AT","EXPRESSES"]}
+  ],
+  "resolution_checks": [
+    {"alias":"sama","node_type":"Person","expected_node_count":1,"reason":"exact explicit handle links two supported Sam Altman mentions"},
+    {"alias":"openai ceo","node_type":"Person","expected_node_count":1,"reason":"role alias is attached to the same externally identified person"},
+    {"alias":"alex smith","node_type":"Person","expected_node_count":2,"reason":"same names with different companies and no stable identifier must not merge"}
+  ]
+}
