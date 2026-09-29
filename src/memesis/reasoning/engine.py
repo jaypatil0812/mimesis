@@ -13,7 +13,7 @@ from memesis.reasoning.budget import QueryExecutionMetrics
 from memesis.reasoning.classifier import QueryClassifier, QueryIntent
 from memesis.reasoning.confidence import ConfidenceCalculator
 from memesis.reasoning.contracts import IntelligencePacket, ReasoningOutput
-from memesis.reasoning.decision_engine import CachedDecisionEngine, HeuristicDecisionEngine
+from memesis.reasoning.decision_engine import CachedDecisionEngine, get_decision_engine
 from memesis.reasoning.deep_gate import DeepReasoningGate, GateDecision
 from memesis.reasoning.fallback import FallbackDetector
 from memesis.reasoning.historical_analogues import HistoricalAnalogueEngine
@@ -35,9 +35,7 @@ class MemesisReasoningEngine:
         strong_model_adapter: Any = None,
     ) -> None:
         self.repository = repository
-        self.decision_engine = decision_engine or CachedDecisionEngine(
-            HeuristicDecisionEngine(), repository=repository
-        )
+        self.decision_engine = decision_engine or get_decision_engine(repository=repository)
         self.classifier = QueryClassifier()
         self.planner = QueryPlanner()
         self.context_builder = ContextBuilder(repository, self.decision_engine)
@@ -67,8 +65,19 @@ class MemesisReasoningEngine:
         # 2. Query Planning
         plan = self.planner.create_plan(intent)
 
+        def _to_utc(dt: datetime | None) -> datetime:
+            if dt is None:
+                return datetime.now(UTC)
+            return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
         # 3. Deterministic Scores (compute or read from repo)
-        scores = self.repository.list_scores()
+        all_repo_scores = self.repository.list_scores()
+        if as_of:
+            as_of_utc = _to_utc(as_of)
+            scores = [s for s in all_repo_scores if _to_utc(s.as_of) <= as_of_utc]
+        else:
+            scores = all_repo_scores
+
         if not scores and plan.required_scores:
             scoring_run = self.scoring_service.compute_all(as_of=as_of, persist=False)
             scores = list(scoring_run.scores)
@@ -76,9 +85,29 @@ class MemesisReasoningEngine:
         # 4. Context Retrieval (Pipeline A: full context vs Pipeline B: minimum sufficient context)
         if force_full_context:
             # Full unconstrained context: load all nodes, all edges, all evidence
-            all_nodes = self.repository.list_nodes()
-            all_edges = self.repository.list_edges()
-            all_evidence = self.repository.list_evidence()
+            raw_evidence = self.repository.list_evidence()
+            if as_of:
+                as_of_utc = _to_utc(as_of)
+                all_evidence = [
+                    ev for ev in raw_evidence
+                    if _to_utc(ev.published_at or ev.retrieved_at) <= as_of_utc
+                ]
+                valid_eids = {ev.id for ev in all_evidence}
+                all_edges = [
+                    e for e in self.repository.list_edges()
+                    if (not e.recorded_at or _to_utc(e.recorded_at) <= as_of_utc)
+                    and (not e.valid_from or _to_utc(e.valid_from) <= as_of_utc)
+                    and (not e.provenance.evidence_ids or any(eid in valid_eids for eid in e.provenance.evidence_ids))
+                ]
+                all_nodes = [
+                    n for n in self.repository.list_nodes()
+                    if (not n.provenance.evidence_ids or any(eid in valid_eids for eid in n.provenance.evidence_ids))
+                ]
+            else:
+                all_nodes = self.repository.list_nodes()
+                all_edges = self.repository.list_edges()
+                all_evidence = raw_evidence
+
             subgraph = MinimumSufficientSubgraph(
                 nodes=all_nodes,
                 edges=all_edges,

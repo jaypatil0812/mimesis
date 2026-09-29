@@ -56,12 +56,42 @@ class ContextBuilder:
         for s in scores:
             scores_by_subject[s.subject_id].append(s)
 
-        all_nodes = self.repository.list_nodes()
-        all_edges = self.repository.list_edges()
-        all_evidence = self.repository.list_evidence()
+        def _normalize_dt(dt: datetime | None) -> datetime:
+            if dt is None:
+                return datetime.now(UTC)
+            return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+        as_of_utc = _normalize_dt(as_of)
+
+        raw_evidence = self.repository.list_evidence()
+        all_evidence = [
+            ev for ev in raw_evidence
+            if _normalize_dt(ev.published_at or ev.retrieved_at) <= as_of_utc
+        ]
+        valid_evidence_ids = {ev.id for ev in all_evidence}
+
+        raw_edges = self.repository.list_edges()
+        all_edges: list[GraphEdge] = []
+        for edge in raw_edges:
+            if edge.recorded_at and _normalize_dt(edge.recorded_at) > as_of_utc:
+                continue
+            if edge.valid_from and _normalize_dt(edge.valid_from) > as_of_utc:
+                continue
+            edge_ev_ids = [eid for eid in edge.provenance.evidence_ids if eid in valid_evidence_ids]
+            if edge.provenance.evidence_ids and not edge_ev_ids:
+                continue
+            all_edges.append(edge)
+
+        raw_nodes = self.repository.list_nodes()
+        all_nodes: list[CanonicalNode] = []
+        for node in raw_nodes:
+            node_ev_ids = [eid for eid in node.provenance.evidence_ids if eid in valid_evidence_ids]
+            if node.provenance.evidence_ids and not node_ev_ids:
+                continue
+            all_nodes.append(node)
 
         # Step 1: Filter nodes by time window if specified
-        cutoff_time = as_of - timedelta(days=plan.time_filter_days) if plan.time_filter_days else None
+        cutoff_time = as_of_utc - timedelta(days=plan.time_filter_days) if plan.time_filter_days else None
 
         # Step 2: Seed nodes matching query entities and keywords
         query_text = plan.intent.raw_query.lower()

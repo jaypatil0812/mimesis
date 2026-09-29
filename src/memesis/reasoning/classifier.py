@@ -40,6 +40,12 @@ class QueryIntent(BaseModel):
     required_graph_objects: list[NodeType] = Field(default_factory=list)
 
     def primary_intent(self) -> IntentType:
+        if IntentType.RAW_RETRIEVAL in self.intents:
+            return IntentType.RAW_RETRIEVAL
+        if IntentType.MARKET_MOTION in self.intents:
+            return IntentType.MARKET_MOTION
+        if IntentType.STRATEGIC_DECISION in self.intents:
+            return IntentType.STRATEGIC_DECISION
         return self.intents[0]
 
 
@@ -167,10 +173,19 @@ class QueryClassifier:
         elif IntentType.PERCEPTION_ANALYSIS in intents:
             required_objects = {NodeType.CONTENT, NodeType.BELIEF, NodeType.PERSON, NodeType.PRODUCT}
 
+        # Extract unknown proper noun entities (e.g. QuantumHypervisorX)
+        for word in re.findall(r"\b[A-Z][a-z]+[A-Z]\w*\b", query):
+            if word not in companies and word not in people and word.lower() not in {"infrastructure", "inference"}:
+                companies.append(word)
+
+        for ke in known_entities:
+            if ke.lower() in lower and ke not in companies and ke not in people:
+                companies.append(ke)
+
         return QueryIntent(
             raw_query=query,
             intents=intents,
-            entities=list(set(companies + people + markets)),
+            entities=list(set(companies + people)),
             markets=markets,
             companies=companies,
             people=people,

@@ -29,6 +29,7 @@ from memesis.db.models import (
     GraphRevisionRow,
     MergeDecisionRow,
     NormalizedDocumentRow,
+    PerceptionObservationRow,
     ReasoningRunRow,
     ScoreRecordRow,
     SourcePolicyRow,
@@ -54,6 +55,9 @@ from memesis.domain.schemas import (
     MergeDecision,
     NodeType,
     NormalizedDocument,
+    PerceptionDimension,
+    PerceptionObservation,
+    PerceptionStance,
     Person,
     Product,
     Provenance,
@@ -1382,6 +1386,63 @@ class SqlGraphRepository:
             metadata=row.metadata_json or {},
         )
 
+    def add_perception(self, observation: PerceptionObservation) -> PerceptionObservation:
+        with self._sessions.begin() as session:
+            existing = session.get(PerceptionObservationRow, str(observation.id))
+            if existing:
+                return self._perception_from_row(existing)
+            row = PerceptionObservationRow(
+                id=str(observation.id),
+                subject_id=str(observation.subject_id),
+                subject_type=observation.subject_type.value,
+                dimension=observation.dimension.value,
+                stance=observation.stance.value,
+                actor_id=str(observation.actor_id) if observation.actor_id else None,
+                actor_community=observation.actor_community,
+                statement=observation.statement,
+                evidence_ids=[str(eid) for eid in observation.evidence_ids],
+                confidence=observation.confidence,
+                observed_at=observation.observed_at,
+                provenance=observation.provenance.model_dump(mode="json"),
+                created_at=datetime.now(UTC),
+            )
+            session.add(row)
+            session.flush()
+            return self._perception_from_row(row)
+
+    def list_perceptions(
+        self,
+        subject_id: UUID | None = None,
+        dimension: PerceptionDimension | None = None,
+        limit: int = 500,
+    ) -> list[PerceptionObservation]:
+        with self._sessions() as session:
+            stmt = select(PerceptionObservationRow)
+            if subject_id:
+                stmt = stmt.where(PerceptionObservationRow.subject_id == str(subject_id))
+            if dimension:
+                stmt = stmt.where(PerceptionObservationRow.dimension == dimension.value)
+            stmt = stmt.order_by(PerceptionObservationRow.observed_at.desc()).limit(limit)
+            rows = session.scalars(stmt).all()
+            return [self._perception_from_row(r) for r in rows]
+
+    @staticmethod
+    def _perception_from_row(row: PerceptionObservationRow) -> PerceptionObservation:
+        return PerceptionObservation(
+            id=UUID(row.id),
+            subject_id=UUID(row.subject_id),
+            subject_type=NodeType(row.subject_type),
+            dimension=PerceptionDimension(row.dimension),
+            stance=PerceptionStance(row.stance),
+            statement=row.statement,
+            evidence_ids=tuple(UUID(eid) for eid in row.evidence_ids),
+            confidence=row.confidence,
+            actor_id=UUID(row.actor_id) if row.actor_id else None,
+            actor_community=row.actor_community,
+            observed_at=row.observed_at,
+            provenance=Provenance.model_validate(row.provenance),
+        )
+
     @staticmethod
     def _node_from_row(row: GraphNodeRow) -> CanonicalNode:
         schema = NODE_SCHEMAS[NodeType(row.node_type)]
@@ -1406,3 +1467,4 @@ class SqlGraphRepository:
             recorded_at=row.recorded_at,
             provenance=row.provenance,
         )
+
