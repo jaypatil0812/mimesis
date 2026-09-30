@@ -34,8 +34,11 @@ class EdgeType(StrEnum):
     ADJACENT_TO = "ADJACENT_TO"
     DEPENDS_ON = "DEPENDS_ON"
     PRECEDES = "PRECEDES"
+    POSSIBLY_INFLUENCED = "POSSIBLY_INFLUENCED"
+    EVIDENCED_INFLUENCE = "EVIDENCED_INFLUENCE"
     AMPLIFIES = "AMPLIFIES"
     PARTICIPATED_IN = "PARTICIPATED_IN"
+    PERCEIVES = "PERCEIVES"
 
 
 class ExtractionMethod(StrEnum):
@@ -375,6 +378,41 @@ class MergeDecision(BaseModel):
         return self
 
 
+class PerceptionDimension(StrEnum):
+    PAIN = "PAIN"
+    PRAISE = "PRAISE"
+    FEATURE_REQUEST = "FEATURE_REQUEST"
+    SWITCHING_INTENT = "SWITCHING_INTENT"
+    PRICE_SENSITIVITY = "PRICE_SENSITIVITY"
+    TRUST = "TRUST"
+    PERFORMANCE = "PERFORMANCE"
+    USABILITY = "USABILITY"
+    USE_CASE = "USE_CASE"
+    OTHER = "OTHER"
+
+
+class PerceptionStance(StrEnum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    MIXED = "mixed"
+    NEUTRAL = "neutral"
+
+
+class PerceptionObservation(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    subject_id: UUID  # product, company, or market
+    subject_type: NodeType
+    dimension: PerceptionDimension
+    stance: PerceptionStance
+    statement: str = Field(min_length=1)
+    evidence_ids: tuple[UUID, ...] = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+    actor_id: UUID | None = None
+    actor_community: str | None = None
+    observed_at: datetime
+    provenance: Provenance
+
+
 # Endpoint rules from ONTOLOGY.md. INFLUENCES is intentionally permissive but
 # still constrained to the documented participant and proposition types.
 EDGE_ENDPOINTS: dict[EdgeType, set[tuple[NodeType, NodeType]]] = {
@@ -385,6 +423,16 @@ EDGE_ENDPOINTS: dict[EdgeType, set[tuple[NodeType, NodeType]]] = {
     },
     EdgeType.EXPRESSES: {(NodeType.CONTENT, NodeType.BELIEF)},
     EdgeType.INFLUENCES: {
+        (a, b)
+        for a in (NodeType.PERSON, NodeType.CONTENT, NodeType.BELIEF)
+        for b in (NodeType.PERSON, NodeType.BELIEF, NodeType.COMPANY, NodeType.EVENT)
+    },
+    EdgeType.POSSIBLY_INFLUENCED: {
+        (a, b)
+        for a in (NodeType.PERSON, NodeType.CONTENT, NodeType.BELIEF)
+        for b in (NodeType.PERSON, NodeType.BELIEF, NodeType.COMPANY, NodeType.EVENT)
+    },
+    EdgeType.EVIDENCED_INFLUENCE: {
         (a, b)
         for a in (NodeType.PERSON, NodeType.CONTENT, NodeType.BELIEF)
         for b in (NodeType.PERSON, NodeType.BELIEF, NodeType.COMPANY, NodeType.EVENT)
@@ -422,6 +470,11 @@ EDGE_ENDPOINTS: dict[EdgeType, set[tuple[NodeType, NodeType]]] = {
     EdgeType.PARTICIPATED_IN: {
         (a, NodeType.EVENT)
         for a in (NodeType.PERSON, NodeType.COMPANY, NodeType.PRODUCT, NodeType.MARKET)
+    },
+    EdgeType.PERCEIVES: {
+        (a, b)
+        for a in (NodeType.PERSON, NodeType.CONTENT)
+        for b in (NodeType.PRODUCT, NodeType.COMPANY, NodeType.MARKET)
     },
 }
 

@@ -70,7 +70,6 @@ class ContextBuilder:
             if (score.subject_id in scoped_node_ids and utc(score.as_of) <= as_of
                     and set(score.evidence_ids) <= scoped_evidence_ids):
                 scores_by_subject[score.subject_id].append(score)
-
         # Step 2: Seed nodes matching query entities and keywords
         query_text = plan.intent.raw_query.lower()
         seed_nodes: list[CanonicalNode] = []

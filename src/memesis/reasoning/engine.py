@@ -13,7 +13,7 @@ from memesis.reasoning.budget import QueryExecutionMetrics
 from memesis.reasoning.classifier import QueryClassifier, QueryIntent
 from memesis.reasoning.confidence import ConfidenceCalculator
 from memesis.reasoning.contracts import IntelligencePacket, ReasoningOutput
-from memesis.reasoning.decision_engine import CachedDecisionEngine, HeuristicDecisionEngine
+from memesis.reasoning.decision_engine import CachedDecisionEngine, get_decision_engine
 from memesis.reasoning.deep_gate import DeepReasoningGate, GateDecision
 from memesis.reasoning.fallback import FallbackDetector
 from memesis.reasoning.historical_analogues import HistoricalAnalogueEngine
@@ -37,9 +37,7 @@ class MemesisReasoningEngine:
         strong_model_adapter: Any = None,
     ) -> None:
         self.repository = repository
-        self.decision_engine = decision_engine or CachedDecisionEngine(
-            HeuristicDecisionEngine(), repository=repository
-        )
+        self.decision_engine = decision_engine or get_decision_engine(repository=repository)
         self.classifier = QueryClassifier()
         self.planner = QueryPlanner()
         self.context_builder = ContextBuilder(repository, self.decision_engine)
@@ -80,7 +78,7 @@ class MemesisReasoningEngine:
             })
         view = ScopedGraphRepository(self.repository, scope)
 
-        # 3. Deterministic Scores (compute or read from repo)
+        # 3. Recompute scores from the scoped evidence snapshot.
         scores = []
         if plan.required_scores:
             scores = view.compute_scores()

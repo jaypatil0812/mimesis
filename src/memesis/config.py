@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     model_api_base_url: str = "https://api.openai.com/v1"
     model_api_key: str | None = None
 
+    # Decision Engine & TypeSafe Jev configuration
+    decision_engine: str = "hybrid"  # "heuristic", "jev", or "hybrid"
+    typesafe_api_key: str | None = None
+    typesafe_base_url: str = "https://api.typesafe.ai"
+    typesafe_model: str = "jev-1.13"
+    openrouter_api_key: str | None = None
+
     # Pipeline optimization flags — set to False to disable specific optimizations
     # and measure their impact with the profiler.
     cache_scores_per_day: bool = True  # skip recomputing scores when same as_of day exists

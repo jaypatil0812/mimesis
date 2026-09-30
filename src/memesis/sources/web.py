@@ -109,9 +109,18 @@ class WebPageAdapter:
 
     async def _robots_allows(self) -> tuple[bool, int, int]:
         robots_url = urljoin(self._origin, "/robots.txt")
-        response = await self._http.get(
-            robots_url, min_interval_seconds=1.0, cache_ttl_seconds=3600
-        )
+        try:
+            response = await self._http.get(
+                robots_url, min_interval_seconds=1.0, cache_ttl_seconds=3600
+            )
+        except Exception as e:
+            # 404 on robots.txt means no restrictions exist; allow crawl
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            if status_code == 404 or "404" in str(e):
+                return True, 1, 0
+            # For network connectivity errors, fail closed
+            return False, 1, 0
+
         # Conservatively block only explicit user-agent or wildcard disallow rules
         # for every path. Fine-grained parser logic is intentionally small here.
         lines = [line.strip().lower() for line in response.body.splitlines()]

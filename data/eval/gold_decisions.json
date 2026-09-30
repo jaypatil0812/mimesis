@@ -1,0 +1,782 @@
+[
+  {
+    "id": "rel-01",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "vLLM introduces PagedAttention which increases throughput by 2-4x for 7B and 13B model serving on NVIDIA A10G GPUs.",
+      "node_name": "vLLM"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "RELEVANT"
+  },
+  {
+    "id": "rel-02",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "Apple released Final Cut Pro update with new iPad touch controls and video editing color grading tools.",
+      "node_name": "Final Cut Pro"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "IRRELEVANT"
+  },
+  {
+    "id": "rel-03",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "Mistral 7B outperforms Llama 2 13B on all benchmarks while being dramatically cheaper to host on commodity GPUs.",
+      "node_name": "Mistral 7B"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "RELEVANT"
+  },
+  {
+    "id": "rel-04",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "PostgreSQL 16 released with improved query parallelism and logical replication improvements for backend databases.",
+      "node_name": "PostgreSQL"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "IRRELEVANT"
+  },
+  {
+    "id": "rel-05",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "Ollama provides seamless one-command local model deployment with 4-bit GGUF quantization on macOS and Linux.",
+      "node_name": "Ollama"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "RELEVANT"
+  },
+  {
+    "id": "rel-06",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "SpaceX successfully launched Falcon 9 with 23 Starlink satellites into low Earth orbit from Cape Canaveral.",
+      "node_name": "SpaceX"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "IRRELEVANT"
+  },
+  {
+    "id": "rel-07",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "Speculative decoding uses a draft 1B model to propose tokens validated by an 8B target model, doubling decode speed.",
+      "node_name": "Speculative Decoding"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "RELEVANT"
+  },
+  {
+    "id": "rel-08",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "We analyzed the macroeconomic inflation data released by the Federal Reserve and interest rate forecasts.",
+      "node_name": "Federal Reserve"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "IRRELEVANT"
+  },
+  {
+    "id": "rel-09",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "Groq LPU architecture delivers over 500 tokens/second for Llama 3 8B using deterministic SRAM memory.",
+      "node_name": "Groq"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "RELEVANT"
+  },
+  {
+    "id": "rel-10",
+    "decision_type": "CONTENT_RELEVANCE",
+    "context": {
+      "query": "Is AI infrastructure moving toward smaller specialized models?",
+      "text": "Modern cloud computing trends suggest hybrid cloud adoption is stabilizing across fortune 500 IT departments.",
+      "node_name": "Hybrid Cloud"
+    },
+    "allowed_outputs": [
+      "RELEVANT",
+      "IRRELEVANT",
+      "UNCERTAIN"
+    ],
+    "expected": "UNCERTAIN"
+  },
+  {
+    "id": "relat-01",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Smaller specialized models will replace frontier models for narrow enterprise inference workloads",
+      "text": "Our enterprise customer support bot moved from GPT-4 to a fine-tuned Mistral 7B, cutting costs by 85% with higher accuracy."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "SUPPORT"
+  },
+  {
+    "id": "relat-02",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Smaller specialized models will replace frontier models for narrow enterprise inference workloads",
+      "text": "Small models cannot replace frontier models because complex reasoning and edge cases cause catastrophic failure in production."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "CONTRADICT"
+  },
+  {
+    "id": "relat-03",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Smaller specialized models will replace frontier models for narrow enterprise inference workloads",
+      "text": "Researchers compared Phi-3 and GPT-4 on GSM8K and noted varying inference trade-offs across parameters."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "MENTION"
+  },
+  {
+    "id": "relat-04",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Smaller specialized models will replace frontier models for narrow enterprise inference workloads",
+      "text": "The price of H100 GPU rentals increased 15% on serverless cloud providers this quarter."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "NEITHER"
+  },
+  {
+    "id": "relat-05",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Quantized inference preserves accuracy while cutting memory costs",
+      "text": "Benchmarking AWQ 4-bit quantization on Llama 3 demonstrated identical perplexity to FP16 while running on a single RTX 4090."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "SUPPORT"
+  },
+  {
+    "id": "relat-06",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Quantized inference preserves accuracy while cutting memory costs",
+      "text": "4-bit quantization degrades precision so severely that multi-step mathematical reasoning fails completely."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "CONTRADICT"
+  },
+  {
+    "id": "relat-07",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Model routing reduces average token cost by over 70%",
+      "text": "By deploying RouteLLM to route 82% of easy queries to a 3B model, we achieved an 80% cost reduction without quality loss."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "SUPPORT"
+  },
+  {
+    "id": "relat-08",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Local on-device inference will replace cloud APIs for personal assistants",
+      "text": "On-device battery drain and thermal throttling will never replace cloud API reliability for mobile assistants."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "CONTRADICT"
+  },
+  {
+    "id": "relat-09",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Hardware accelerators with SRAM like Groq will outperform GPUs for autoregressive decoding",
+      "text": "Groq's deterministic Tensor Streaming Processor achieves 520 tokens/sec on Llama 3 8B, 4x faster than dual H100 SXM5."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "SUPPORT"
+  },
+  {
+    "id": "relat-10",
+    "decision_type": "EVIDENCE_RELATION",
+    "context": {
+      "belief": "Hardware accelerators with SRAM like Groq will outperform GPUs for autoregressive decoding",
+      "text": "The weather forecast in San Francisco predicts rain and mild temperatures for the weekend."
+    },
+    "allowed_outputs": [
+      "SUPPORT",
+      "CONTRADICT",
+      "MENTION",
+      "NEITHER"
+    ],
+    "expected": "NEITHER"
+  },
+  {
+    "id": "equiv-01",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Smaller specialized models will replace frontier models for enterprise inference workloads",
+      "proposition_b": "Smaller specialized models will replace frontier models for enterprise inference workloads"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "SAME"
+  },
+  {
+    "id": "equiv-02",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Small specialized models will displace frontier models for narrow enterprise tasks",
+      "proposition_b": "Narrow enterprise inference will be handled by small specialized models rather than frontier LLMs"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "SAME"
+  },
+  {
+    "id": "equiv-03",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Speculative decoding doubles autoregressive serving throughput",
+      "proposition_b": "Draft model verification in speculative decoding accelerates token generation rate by 2x"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "SAME"
+  },
+  {
+    "id": "equiv-04",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Model routing reduces inference expenses by dispatching easy queries to smaller models",
+      "proposition_b": "Quantization compresses model weights to fit on consumer grade GPUs"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "DIFFERENT"
+  },
+  {
+    "id": "equiv-05",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Local LLM inference provides strict enterprise privacy compliance",
+      "proposition_b": "Cloud inference providers will lower per-token pricing to match self-hosted economics"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "DIFFERENT"
+  },
+  {
+    "id": "equiv-06",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Distilled SLMs achieve parity with frontier teacher models on domain specific tasks",
+      "proposition_b": "Small language models are becoming popular among indie developers"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "RELATED"
+  },
+  {
+    "id": "equiv-07",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Continuous batching with PagedAttention solves KV cache fragmentation",
+      "proposition_b": "Memory bandwidth constraints limit GPU utilization during LLM inference"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "RELATED"
+  },
+  {
+    "id": "equiv-08",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Groq LPU hardware architecture outperforms GPUs on latency",
+      "proposition_b": "Solar panels generate renewable energy for data centers"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "DIFFERENT"
+  },
+  {
+    "id": "equiv-09",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Mixture of Experts enables sub-20B active parameter inference cost with 70B parameter quality",
+      "proposition_b": "MoE architectures decouple parameter capacity from per-token compute costs"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "SAME"
+  },
+  {
+    "id": "equiv-10",
+    "decision_type": "BELIEF_EQUIVALENCE",
+    "context": {
+      "proposition_a": "Enterprises are adopting open weight models to avoid vendor lock-in",
+      "proposition_b": "Open weight models under 8B parameters are easy to customize with LoRA"
+    },
+    "allowed_outputs": [
+      "SAME",
+      "RELATED",
+      "DIFFERENT",
+      "UNCERTAIN"
+    ],
+    "expected": "RELATED"
+  },
+  {
+    "id": "perc-01",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "Our OpenAI API bill hit $42,000 this month and is completely over budget for our seed stage startup."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "PRICE_SENSITIVITY"
+  },
+  {
+    "id": "perc-02",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "The time to first token is over 1.8 seconds on this provider, causing our voice agent to stutter terribly."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "PERFORMANCE"
+  },
+  {
+    "id": "perc-03",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "The inference server randomly throws CUDA out of memory errors and crashes every 4 hours under heavy load."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "PAIN"
+  },
+  {
+    "id": "perc-04",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "We moved from closed source cloud endpoints to self-hosting Llama 3 with vLLM on dedicated GPUs."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "SWITCHING_INTENT"
+  },
+  {
+    "id": "perc-05",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "Please add native support for structured JSON schema outputs and grammar-constrained decoding."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "FEATURE_REQUEST"
+  },
+  {
+    "id": "perc-06",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "We cannot send medical records to third-party endpoints due to strict HIPAA compliance and patient data privacy laws."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "TRUST"
+  },
+  {
+    "id": "perc-07",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "Setting up Ollama was effortless; literally one command and the local model was running with an OpenAI compatible API."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "USABILITY"
+  },
+  {
+    "id": "perc-08",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "Groq's Llama 3 70B stream is jaw-droppingly fast; text streams faster than I can read, absolutely incredible work."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "PRAISE"
+  },
+  {
+    "id": "perc-09",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "We use the 3B model primarily for structured metadata extraction and synthetic test data generation."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "USE_CASE"
+  },
+  {
+    "id": "perc-10",
+    "decision_type": "PERCEPTION_TYPE",
+    "context": {
+      "text": "The quarterly business meeting discussed office lease renewals and catering options for next year."
+    },
+    "allowed_outputs": [
+      "PAIN",
+      "PRAISE",
+      "FEATURE_REQUEST",
+      "SWITCHING_INTENT",
+      "PRICE_SENSITIVITY",
+      "TRUST",
+      "PERFORMANCE",
+      "USABILITY",
+      "USE_CASE",
+      "OTHER"
+    ],
+    "expected": "OTHER"
+  },
+  {
+    "id": "claim-01",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "vLLM improves serving throughput using PagedAttention memory management",
+      "evidence_text": "vLLM introduces PagedAttention, a memory-efficient algorithm that manages KV cache with minimal fragmentation, yielding 2-4x higher throughput."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "YES"
+  },
+  {
+    "id": "claim-02",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "Mistral AI was acquired by Microsoft for 10 billion dollars",
+      "evidence_text": "Mistral AI announced a multi-year partnership with Microsoft to make their open and commercial models available on Azure."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "NO"
+  },
+  {
+    "id": "claim-03",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "Groq uses LPUs with on-chip SRAM to achieve high decoding token rates",
+      "evidence_text": "Groq's Language Processing Unit utilizes 230MB of on-chip SRAM memory instead of external HBM to provide ultra-low latency token generation."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "YES"
+  },
+  {
+    "id": "claim-04",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "All open source models have completely eliminated hallucinations",
+      "evidence_text": "While small specialized models show lower error rates on specific domain benchmarks, hallucinations remain a challenge across LLM deployments."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "NO"
+  },
+  {
+    "id": "claim-05",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "Ollama supports quantized model execution on consumer hardware",
+      "evidence_text": "Ollama packages llama.cpp runtimes to execute 4-bit and 8-bit quantized GGUF models directly on consumer MacBooks and Linux workstations."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "YES"
+  },
+  {
+    "id": "claim-06",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "NVIDIA stock dropped to zero following open weight model releases",
+      "evidence_text": "NVIDIA reported record quarterly revenue driven by immense datacenter demand for H100 and B200 AI accelerator hardware."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "NO"
+  },
+  {
+    "id": "claim-07",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "Speculative decoding accelerates inference without changing output distribution",
+      "evidence_text": "Because target models verify draft tokens with standard rejection sampling, speculative decoding mathematically preserves the target model's output distribution."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "YES"
+  },
+  {
+    "id": "claim-08",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "Apple MLX framework is exclusively designed for Windows and x86 servers",
+      "evidence_text": "MLX is an open-source framework developed by Apple machine learning research specifically optimized for Apple silicon unified memory architecture."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "NO"
+  },
+  {
+    "id": "claim-09",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "Model routing dispatches queries based on task complexity to minimize cost",
+      "evidence_text": "RouteLLM and Martian evaluate incoming prompts using lightweight classifier models to route simple queries to cheap models and hard queries to frontier models."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "YES"
+  },
+  {
+    "id": "claim-10",
+    "decision_type": "CLAIM_SUPPORT",
+    "context": {
+      "claim": "Small models under 3B parameters can flawlessly solve unsolved Millennium Prize mathematics problems",
+      "evidence_text": "Researchers evaluated 3B SLMs on high school competition math, finding strong progress on AMC benchmarks but limitations on novel proofs."
+    },
+    "allowed_outputs": [
+      "YES",
+      "NO"
+    ],
+    "expected": "NO"
+  }
+]

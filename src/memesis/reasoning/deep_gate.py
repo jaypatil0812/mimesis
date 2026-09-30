@@ -30,6 +30,14 @@ class DeepReasoningGate:
         lower = query.lower()
         primary = plan.intent.primary_intent()
 
+        # 0. Multi-intent or strategic structural queries require deep reasoning
+        if len(plan.intent.intents) >= 3 or any(w in lower for w in ["structural", "hype", "strategy", "strategic", "implications"]):
+            return GateDecision(
+                requires_deep_reasoning=True,
+                reason="Multi-intent strategic assessment requiring cross-dimensional graph synthesis.",
+                confidence=0.98,
+            )
+
         # 1. Raw retrieval never requires deep reasoning
         if primary == IntentType.RAW_RETRIEVAL or re.search(r"\b(give me every|list all|every post|all posts)\b", lower):
             return GateDecision(
