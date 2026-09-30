@@ -26,6 +26,8 @@ class ClaimStatement(BaseModel):
     evidence_link_status: str = "not_checked"
     evidence_support_status: str = "not_checked"
     evidence_support_note: str | None = None
+    observation_ids: list[str] = Field(default_factory=list)
+    reasoning: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -36,6 +38,8 @@ class ClaimStatement(BaseModel):
             "evidence_link_status": self.evidence_link_status,
             "evidence_support_status": self.evidence_support_status,
             "evidence_support_note": self.evidence_support_note,
+            "observation_ids": self.observation_ids,
+            "reasoning": self.reasoning,
         }
 
 
@@ -65,6 +69,8 @@ class IntelligencePacket(BaseModel):
     competitor_actions: list[dict[str, Any]] = Field(default_factory=list)
     market_relationships: list[dict[str, Any]] = Field(default_factory=list)
     memory_observations: list[dict[str, Any]] = Field(default_factory=list)
+    graph_relationships: list[dict[str, Any]] = Field(default_factory=list)
+    market_motion: dict[str, Any] | None = None
     memesis_scores: list[dict[str, Any]] = Field(default_factory=list)
     recent_changes: list[dict[str, Any]] = Field(default_factory=list)
     historical_analogues: list[HistoricalAnalogue] = Field(default_factory=list)
@@ -95,3 +101,4 @@ class ReasoningOutput(BaseModel):
     fallback_status: str | None = None
     citation_audit: dict[str, Any] = Field(default_factory=dict)
     summary_evidence_ids: list[str] = Field(default_factory=list)
+    reasoning_execution: dict[str, Any] = Field(default_factory=dict)

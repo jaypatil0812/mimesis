@@ -92,6 +92,8 @@ def _claim_response(claim, evidence_by_id: dict[str, dict[str, Any]], section: s
     return {
         "section": section,
         "text": claim.text,
+        "reasoning": claim.reasoning,
+        "observation_ids": claim.observation_ids,
         "status": claim.epistemic_status.value,
         "evidence_ids": evidence_ids,
         "evidence_link_status": claim.evidence_link_status,
@@ -310,24 +312,6 @@ def ask_market(request: Request, market_id: UUID, req: AskRequest) -> dict[str, 
         req.question, client_context=market.name, scope=scope,
     )
 
-    # Classify claims by epistemic status
-    observed_claims = []
-    inferred_claims = []
-    speculative_claims = []
-
-    for claim in output.what_is_happening:
-        claim_dict = {
-            "text": claim.text,
-            "evidence_ids": [str(eid) for eid in getattr(claim, "evidence_ids", [])],
-            "status": claim.epistemic_status.value,
-        }
-        if claim.epistemic_status.value == "OBSERVED":
-            observed_claims.append(claim_dict)
-        elif claim.epistemic_status.value == "INFERRED":
-            inferred_claims.append(claim_dict)
-        elif claim.epistemic_status.value == "SPECULATIVE":
-            speculative_claims.append(claim_dict)
-
     # Expose the packet's evidence directly so every claim can link to the exact
     # source record that was available during this answer run.
     evidence_by_id: dict[str, dict[str, Any]] = {}
@@ -361,6 +345,9 @@ def ask_market(request: Request, market_id: UUID, req: AskRequest) -> dict[str, 
         for section, section_claims in claim_sections
         for claim in section_claims
     ]
+    observed_claims = [claim for claim in claims if claim["status"] == "OBSERVED"]
+    inferred_claims = [claim for claim in claims if claim["status"] == "INFERRED"]
+    speculative_claims = [claim for claim in claims if claim["status"] == "SPECULATIVE"]
 
     primary_citations = list(evidence_by_id.values())
 
@@ -396,6 +383,10 @@ def ask_market(request: Request, market_id: UUID, req: AskRequest) -> dict[str, 
         "query_scope": packet.query_scope,
         "coverage": packet.coverage,
         "summary": output.summary,
+        "fallback_status": output.fallback_status,
+        "reasoning_execution": output.reasoning_execution,
+        "cost_semantics": "Illustrative cost using fixed benchmark rates, not a provider invoice. Token usage is provider-reported where available; missing usage is unavailable, not a free call.",
+        "market_motion": packet.market_motion,
         "summary_trace": {
             "evidence_ids": output.summary_evidence_ids,
             "scope": "answer-level context; inspect individual claims for claim-level links",

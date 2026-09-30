@@ -472,17 +472,20 @@ export default function MarketWorkspace() {
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-xs font-mono uppercase tracking-wider text-blue-400 flex items-center gap-1.5 font-semibold">
                           <ShieldCheck className="w-4 h-4" />
-                          Deterministic Synthesis
+                          {askResult.reasoning_execution?.status === "completed" ? "Evidence-based Reasoning" : "Recorded Evidence"}
                         </span>
                         <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
                           <span>Confidence: {(askResult.confidence * 100).toFixed(0)}%</span>
                           <span>•</span>
                           <span>Latency: {askResult.metrics.latency_ms}ms</span>
                           <span>•</span>
-                          <span>Tokens: {askResult.metrics.total_tokens}</span>
+                          <span>Tokens: {askResult.reasoning_execution?.usage_source === "unavailable" ? "unavailable" : askResult.metrics.total_tokens}</span>
                         </div>
                       </div>
                       <p className="text-zinc-100 font-medium leading-relaxed">{askResult.summary}</p>
+                      {askResult.fallback_status && (
+                        <p className="mt-3 text-sm text-amber-400">{askResult.fallback_status}: {askResult.unknown_or_missing[askResult.unknown_or_missing.length - 1]}</p>
+                      )}
                     </div>
 
                     {/* Claims Categorization (Observed, Inferred, Speculative) */}
@@ -497,6 +500,8 @@ export default function MarketWorkspace() {
                           {askResult.observed_claims.map((c, i) => (
                             <li key={i} className="text-sm text-zinc-300 border-l-2 border-emerald-500 pl-3 leading-snug">
                               {c.text}
+                              {c.reasoning && <p className="mt-1 text-xs text-zinc-500">{c.reasoning}</p>}
+                              <p className="mt-1 text-xs text-zinc-500">{c.evidence_ids.length} source references</p>
                             </li>
                           ))}
                         </ul>
@@ -512,6 +517,8 @@ export default function MarketWorkspace() {
                           {askResult.inferred_claims.map((c, i) => (
                             <li key={i} className="text-sm text-zinc-300 border-l-2 border-amber-500 pl-3 leading-snug">
                               {c.text}
+                              {c.reasoning && <p className="mt-1 text-xs text-zinc-500">{c.reasoning}</p>}
+                              <p className="mt-1 text-xs text-zinc-500">{c.evidence_ids.length} source references</p>
                             </li>
                           ))}
                         </ul>
@@ -528,6 +535,8 @@ export default function MarketWorkspace() {
                             {askResult.speculative_claims.map((c, i) => (
                               <li key={i} className="text-sm text-zinc-300 border-l-2 border-purple-500 pl-3 leading-snug">
                                 {c.text}
+                                {c.reasoning && <p className="mt-1 text-xs text-zinc-500">{c.reasoning}</p>}
+                                <p className="mt-1 text-xs text-zinc-500">{c.evidence_ids.length} source references</p>
                               </li>
                             ))}
                           </ul>

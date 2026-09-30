@@ -244,7 +244,8 @@ def evaluate_phase5(repository: GraphRepository, output_path: Path | None = None
                     "evidence": metrics_b.evidence_retained,
                 },
                 "input_tokens": packet_b.estimated_tokens,
-                "output_tokens": 500 if metrics_b.deep_reasoning_invoked else 0,
+                "output_tokens": output_b.reasoning_execution.get("output_tokens"),
+                "reasoning_execution": output_b.reasoning_execution,
                 "total_tokens": metrics_b.total_tokens,
                 "expensive_model_calls": 1 if metrics_b.deep_reasoning_invoked else 0,
                 "latency_ms": metrics_b.latency_ms,
@@ -260,7 +261,8 @@ def evaluate_phase5(repository: GraphRepository, output_path: Path | None = None
                 },
                 "input_tokens": packet_a.estimated_tokens,
                 "total_tokens": metrics_a.total_tokens,
-                "expensive_model_calls": 1,
+                "expensive_model_calls": 1 if metrics_a.deep_reasoning_invoked else 0,
+                "reasoning_execution": output_a.reasoning_execution,
                 "latency_ms": metrics_a.latency_ms,
                 "estimated_cost_usd": metrics_a.estimated_cost_usd,
             },
@@ -288,7 +290,9 @@ def evaluate_phase5(repository: GraphRepository, output_path: Path | None = None
     )
 
     report = {
-        "status": "PASS",
+        "status": "COMPLETED",
+        "limitations": ["This measures execution and retrieval, not semantic answer quality.",
+                        "Absent providers cannot establish real model token savings or successful strategic reasoning."],
         "evaluation_name": "Phase 5 Decision & Reasoning Engine Benchmark",
         "questions_evaluated": len(EVALUATION_QUESTIONS),
         "aggregate_metrics": {

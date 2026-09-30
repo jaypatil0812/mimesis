@@ -55,6 +55,8 @@ class EvidenceValidator:
             nonlocal claims_without_valid_citations, invalid_citations_removed
             nonlocal claims_downgraded, unsupported_claims_detected
             claims_checked += 1
+            known_observations = {o["id"] for o in packet.memory_observations}
+            claim = claim.model_copy(update={"observation_ids": [oid for oid in claim.observation_ids if oid in known_observations]})
 
             # Keep only references the answer packet can actually resolve.
             original_cites = [str(eid) for eid in claim.evidence_ids]
@@ -86,6 +88,7 @@ class EvidenceValidator:
                         evidence_ids=[],
                         downgraded_reason="No resolvable source record; retained as an inference.",
                         evidence_link_status=link_status,
+                        reasoning=claim.reasoning, observation_ids=claim.observation_ids,
                     )
                 else:
                     claims_supported += 1
@@ -95,6 +98,7 @@ class EvidenceValidator:
                         evidence_ids=valid_cites,
                         downgraded_reason=claim.downgraded_reason,
                         evidence_link_status=link_status,
+                        reasoning=claim.reasoning, observation_ids=claim.observation_ids,
                     )
 
             elif claim.epistemic_status == EpistemicStatus.INFERRED:
@@ -108,6 +112,7 @@ class EvidenceValidator:
                     evidence_ids=valid_cites,
                     downgraded_reason=claim.downgraded_reason,
                     evidence_link_status=link_status,
+                    reasoning=claim.reasoning, observation_ids=claim.observation_ids,
                 )
 
             elif claim.epistemic_status == EpistemicStatus.SPECULATIVE:
@@ -131,6 +136,7 @@ class EvidenceValidator:
                         or ("Exploratory hypothesis; no evidence link was retrieved." if not valid_cites else None)
                     ),
                     evidence_link_status=("exploratory_uncited" if not valid_cites else link_status),
+                    reasoning=claim.reasoning, observation_ids=claim.observation_ids,
                 )
 
             return claim
@@ -154,7 +160,10 @@ class EvidenceValidator:
             confidence=output.confidence,
             evidence_references=sorted(known_evidence_ids),
             fallback_status=output.fallback_status,
+            reasoning_execution=output.reasoning_execution,
             summary_evidence_ids=sorted({
+                eid for eid in output.summary_evidence_ids if eid in known_evidence_ids
+            } | {
                 evidence_id
                 for section in (
                     output.what_is_happening,

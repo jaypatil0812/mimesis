@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     verify_claim_support: bool = False
     model_api_base_url: str = "https://api.openai.com/v1"
     model_api_key: str | None = None
+    reasoning_timeout_seconds: float = 60.0
+    reasoning_max_packet_tokens: int = 24000
 
     # Decision Engine & TypeSafe Jev configuration
     decision_engine: str = "hybrid"  # "heuristic", "jev", or "hybrid"

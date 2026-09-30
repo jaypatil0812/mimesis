@@ -267,20 +267,22 @@ def test_end_to_end_10_evaluation_queries(repository):
     # Run the full phase 5 evaluation comparing Pipeline A and Pipeline B
     report = evaluate_phase5(repository)
 
-    assert report["status"] == "PASS"
+    assert report["status"] == "COMPLETED"
     assert report["questions_evaluated"] == 10
     assert len(report["query_evaluations"]) == 10
 
     agg = report["aggregate_metrics"]
     savings = agg["savings"]
 
-    # Verify that Pipeline B produces token and cost savings vs Pipeline A
-    assert savings["token_savings_percent"] > 0.0
-    assert savings["cost_savings_percent"] > 0.0
-    assert savings["expensive_calls_avoided"] >= 5
+    # No configured provider: do not manufacture usage or claim savings.
+    assert agg["pipeline_a_full_context"]["expensive_model_calls"] == 0
+    assert agg["pipeline_b_memesis"]["expensive_model_calls"] == 0
+    assert savings["token_savings_percent"] == 0.0
+    assert savings["cost_savings_percent"] == 0.0
+    assert savings["expensive_calls_avoided"] == 0
 
     # Check query 10 specifically (Raw retrieval)
     q10_res = report["query_evaluations"][9]
     assert q10_res["intent"] == "RAW_RETRIEVAL"
     assert q10_res["pipeline_b_memesis"]["expensive_model_calls"] == 0
-    assert q10_res["comparison"]["expensive_call_avoided"] is True
+    assert q10_res["comparison"]["expensive_call_avoided"] is False

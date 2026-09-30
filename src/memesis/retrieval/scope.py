@@ -286,8 +286,22 @@ class ScopedGraphRepository:
                 continue
             if self.scope.time_basis == "known_at" and utc(record.recorded_at) > self.scope.as_of:
                 continue
-            observations.append(observation_dict(record))
+            observations.append(observation_dict(record, self._repository))
         return observations
+
+    def scoped_perceptions(self, evidence_ids=None):
+        allowed = set(self._evidence_by_id) if evidence_ids is None else set(evidence_ids) & set(self._evidence_by_id)
+        if not hasattr(self._repository, "list_perceptions"):
+            return []
+        result = []
+        for node in self.nodes:
+            for p in self._repository.list_perceptions(subject_id=node.id):
+                if not set(p.evidence_ids) <= allowed or utc(p.observed_at) > self.scope.as_of:
+                    continue
+                if self.scope.start_at and utc(p.observed_at) < self.scope.start_at:
+                    continue
+                result.append(p.model_dump(mode="json"))
+        return result
 
     def get_assertion(self, assertion_id: UUID):
         assertion = self._repository.get_assertion(assertion_id)

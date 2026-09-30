@@ -31,7 +31,7 @@ class DeepReasoningGate:
         primary = plan.intent.primary_intent()
 
         # 0. Multi-intent or strategic structural queries require deep reasoning
-        if len(plan.intent.intents) >= 3 or any(w in lower for w in ["structural", "hype", "strategy", "strategic", "implications"]):
+        if primary == IntentType.STRATEGIC_DECISION or len(plan.intent.intents) >= 3 or any(w in lower for w in ["structural", "hype", "strategy", "strategic", "implications"]) or re.search(r"\b(why|should|interpret)\b", lower):
             return GateDecision(
                 requires_deep_reasoning=True,
                 reason="Multi-intent strategic assessment requiring cross-dimensional graph synthesis.",

@@ -29,7 +29,7 @@ class FallbackDetector:
         for entity_name in packet.query_intent.entities:
             if not any(entity_name.lower() in n.name.lower() for n in subgraph.nodes):
                 return ReasoningOutput(
-                    summary=f"UNKNOWN: Entity '{entity_name}' does not exist in the Memesis graph or evidence ledger.",
+                    summary=f"UNKNOWN: Entity '{entity_name}' was not resolved in the retrieved scope.",
                     what_is_happening=[],
                     who_matters=[],
                     what_they_believe=[],
@@ -40,7 +40,7 @@ class FallbackDetector:
                     adjacent_markets=[],
                     possible_implications=[],
                     contradictory_evidence=[],
-                    unknown_or_missing=[f"Entity '{entity_name}' has no recorded nodes or observations."],
+                    unknown_or_missing=[f"Entity '{entity_name}' was not resolved in the retrieved scope; this does not establish global absence."],
                     confidence=ConfidenceBreakdown(
                         overall_confidence=0.0,
                         evidence_quantity=0.0,
@@ -57,7 +57,7 @@ class FallbackDetector:
                 )
 
         # 2. Insufficient Evidence check
-        if len(subgraph.nodes) == 0 or len(subgraph.evidence) == 0:
+        if len(subgraph.evidence) == 0:
             return ReasoningOutput(
                 summary="INSUFFICIENT EVIDENCE: The evidence ledger contains insufficient recorded spans to answer this question.",
                 what_is_happening=[],
@@ -89,14 +89,8 @@ class FallbackDetector:
         # 3. No Meaningful Change Detected check
         if ("what changed" in query_lower or "last 30 days" in query_lower) and len(packet.recent_changes) == 0:
             return ReasoningOutput(
-                summary="NO MEANINGFUL CHANGE DETECTED: No new company events, releases, or belief expressions were recorded in the specified observation window.",
-                what_is_happening=[
-                    ClaimStatement(
-                        text="No delta observed across monitored sources in the requested time interval.",
-                        epistemic_status=EpistemicStatus.OBSERVED,
-                        evidence_ids=[],
-                    )
-                ],
+                summary="CHANGE NOT ESTABLISHED: No dated records were retrieved for comparison. This does not establish that the market was unchanged.",
+                what_is_happening=[],
                 who_matters=[],
                 what_they_believe=[],
                 company_actions=[],
@@ -106,7 +100,7 @@ class FallbackDetector:
                 adjacent_markets=[],
                 possible_implications=[],
                 contradictory_evidence=[],
-                unknown_or_missing=["No events registered in this timeframe."],
+                unknown_or_missing=["No dated records or comparable baseline establish change in this timeframe."],
                 confidence=confidence,
                 evidence_references=[],
                 fallback_status="NO MEANINGFUL CHANGE DETECTED",

@@ -10,6 +10,8 @@ from uuid import uuid4
 from memesis.analysis.scoring import DeterministicScoringService
 from memesis.graph.repository import GraphRepository
 from memesis.reasoning.budget import QueryExecutionMetrics
+from memesis.config import settings
+from memesis.reasoning.adapter import StrategicReasoningAdapter
 from memesis.reasoning.classifier import QueryClassifier, QueryIntent
 from memesis.reasoning.confidence import ConfidenceCalculator
 from memesis.reasoning.contracts import IntelligencePacket, ReasoningOutput
@@ -45,6 +47,8 @@ class MemesisReasoningEngine:
         self.motion_analyzer = MarketMotionAnalyzer()
         self.deep_gate = DeepReasoningGate(self.decision_engine)
         self.packet_builder = IntelligencePacketBuilder()
+        if strong_model_adapter is None and settings.model_api_key and settings.reason_strong_model:
+            strong_model_adapter = StrategicReasoningAdapter()
         self.synthesizer = ReasoningSynthesizer(strong_model_adapter=strong_model_adapter)
         self.validator = EvidenceValidator()
         self.support_verifier = ClaimSupportVerifier()
@@ -107,6 +111,7 @@ class MemesisReasoningEngine:
                 },
                 evidence_membership=view.evidence_membership,
                 memory_observations=view.memory_observations(),
+                perception_observations=view.scoped_perceptions(),
             )
             motion = self.motion_analyzer.analyze(subgraph, scores, as_of)
             analogues = self.analogue_engine.find_analogues(question, subgraph)
@@ -177,9 +182,8 @@ class MemesisReasoningEngine:
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         cheap_tokens = 0
         expensive_tokens = 0
-        if gate.requires_deep_reasoning:
-            # Token usage estimated from packet size + output size
-            expensive_tokens = packet.estimated_tokens + 500
+        execution = final_output.reasoning_execution
+        expensive_tokens = execution.get("input_tokens", 0) + execution.get("output_tokens", 0)
         expensive_tokens += support_result.input_tokens + support_result.output_tokens
 
         metrics = QueryExecutionMetrics(
@@ -192,7 +196,7 @@ class MemesisReasoningEngine:
             expensive_model_tokens=expensive_tokens,
             cache_hits=self.decision_engine.cache_hits,
             latency_ms=round(elapsed_ms, 2),
-            deep_reasoning_invoked=gate.requires_deep_reasoning,
+            deep_reasoning_invoked=execution.get("provider_call_attempted", False),
         )
         metrics.compute_cost()
 
@@ -208,7 +212,7 @@ class MemesisReasoningEngine:
                     "query_scope": packet.query_scope,
                     "coverage": packet.coverage,
                     "deep_reasoning_required": gate.requires_deep_reasoning,
-                    "model": "memesis-strategic-engine-v0.1",
+                    "model": execution.get("model", "deterministic-evidence-formatter"),
                     "answer": final_output.model_dump(mode="json"),
                     "metrics": metrics.model_dump(mode="json"),
                 },

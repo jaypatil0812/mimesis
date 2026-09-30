@@ -72,6 +72,8 @@ export interface MarketWorkspaceData {
 }
 
 export interface Claim {
+  reasoning?: string | null;
+  observation_ids?: string[];
   text: string;
   evidence_ids: string[];
   status: "OBSERVED" | "INFERRED" | "SPECULATIVE";
@@ -93,6 +95,8 @@ export interface HistoricalAnalogue {
 }
 
 export interface AskResponse {
+  fallback_status?: string | null;
+  reasoning_execution?: { status: string; usage_source?: string };
   question: string;
   summary: string;
   confidence: number;

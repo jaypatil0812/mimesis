@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from memesis.domain.schemas import EdgeType, NodeType, ScoreRecord
+from memesis.extraction.meaning import source_family
 from memesis.reasoning.classifier import QueryIntent
 from memesis.reasoning.contracts import IntelligencePacket
 from memesis.reasoning.historical_analogues import HistoricalAnalogue
@@ -60,7 +61,7 @@ class IntelligencePacketBuilder:
                     "id": str(n.id),
                     "name": n.name,
                     "attributes": n.attributes,
-                    "score_summary": f"Score: {sub_score.value:.1f}" if sub_score else "Active speaker",
+                    "score_summary": f"Score: {sub_score.value:.1f}" if sub_score else "No actor score available",
                     "evidence_ids": citation_ids(n),
                 })
 
@@ -77,11 +78,17 @@ class IntelligencePacketBuilder:
         # 4. Competitor Actions / Events
         competitor_actions: list[dict[str, Any]] = []
         for n in subgraph.nodes:
-            if n.node_type == NodeType.EVENT:
+            if n.node_type == NodeType.EVENT and any(
+                e.edge_type == EdgeType.PARTICIPATED_IN and e.to_node_id == n.id
+                and any(c.id == e.from_node_id and c.node_type == NodeType.COMPANY for c in subgraph.nodes)
+                for e in subgraph.edges
+            ):
                 competitor_actions.append({
                     "id": str(n.id),
                     "name": n.name,
                     "subtype": n.attributes.get("subtype", "event"),
+                    "attributes": n.attributes,
+                    "qualification": "Company participation recorded; inspect event and source before interpreting as commercial execution.",
                     "evidence_ids": citation_ids(n),
                 })
 
@@ -97,20 +104,23 @@ class IntelligencePacketBuilder:
                 target_ev = next((evidence_by_id[eid] for eid in edge.provenance.evidence_ids if eid in evidence_by_id), None)
                 text_snippet = target_ev.raw_text if target_ev else ""
 
-                if stance == "opposes" or any(w in text_snippet.lower() for w in ["will not", "cannot replace", "not replace"]):
+                if stance == "opposes":
                     contradictory_evidence.append({
                         "edge_id": str(edge.id),
                         "statement": text_snippet,
                         "stance": "opposes",
                         "evidence_ids": ev_ids,
                     })
-                elif any(w in text_snippet.lower() for w in ["cost", "latency", "pain", "dislike", "expensive"]):
-                    customer_perception.append({
-                        "edge_id": str(edge.id),
-                        "statement": text_snippet,
-                        "category": "developer_pain",
-                        "evidence_ids": ev_ids,
-                    })
+        customer_perception.extend(subgraph.perception_observations)
+        graph_relationships = [{
+            "id": str(e.id), "type": e.edge_type.value,
+            "from_id": str(e.from_node_id), "to_id": str(e.to_node_id),
+            "from": next((n.name for n in subgraph.nodes if n.id == e.from_node_id), str(e.from_node_id)),
+            "to": next((n.name for n in subgraph.nodes if n.id == e.to_node_id), str(e.to_node_id)),
+            "qualifiers": e.qualifiers, "valid_from": e.valid_from.isoformat(),
+            "recorded_at": e.recorded_at.isoformat(), "evidence_ids": citation_ids(e),
+            "qualification": "Stored graph assertion; provenance integrity does not prove semantic correctness.",
+        } for e in subgraph.edges]
 
         # 6. Market Relationships (Adjacent / Depends)
         market_relationships: list[dict[str, Any]] = []
@@ -129,6 +139,9 @@ class IntelligencePacketBuilder:
         for s in scores:
             memesis_scores.append({
                 "type": s.score_type.value,
+                "subject_id": str(s.subject_id),
+                "evidence_ids": [str(eid) for eid in s.evidence_ids if eid in available_evidence_ids],
+                "coverage": s.coverage,
                 "subject": node_names.get(s.subject_id, str(s.subject_id)),
                 "value": round(s.value, 1),
                 "formula": s.formula,
@@ -139,7 +152,7 @@ class IntelligencePacketBuilder:
 
         # 8. Recent Changes
         recent_changes: list[dict[str, Any]] = []
-        for ev in subgraph.evidence:
+        for ev in sorted(subgraph.evidence, key=lambda ev: ev.published_at or ev.retrieved_at, reverse=True):
             recent_changes.append({
                 "id": str(ev.id),
                 "summary": (ev.raw_text or "")[:120],
@@ -156,20 +169,48 @@ class IntelligencePacketBuilder:
                 "text": ev.raw_text,
                 "published_at": ev.published_at.isoformat() if ev.published_at else None,
                 "retrieved_at": ev.retrieved_at.isoformat(),
+                "source_family": next((o["source_family"] for o in subgraph.memory_observations
+                    if str(ev.id) in o.get("evidence_ids", []) and o.get("source_family")), source_family(ev)),
                 "scope_membership": subgraph.evidence_membership.get(str(ev.id)),
             })
 
         # 10. Missing Information
-        missing_info: list[str] = [
-            "Customer churn data comparing general vs specialized models is unobserved in public sources",
-            "Hardware margin and ASIC cost structures remain non-public proprietary estimates",
-        ]
+        missing_info: list[str] = ["Records in a time window are not a measured change against a comparison baseline.",
+            "Legacy graph assertions and source passages are not independently verified facts.",
+            "Source families identify known copies; undiscovered syndication may remain.",
+            "Independent reporting is not established by distinct actor names; confidence uses explicitly verified independence metadata only."]
+        missing_info.extend(subgraph.coverage.get("limits", []))
+        missing_info.append("Memory review states and perception metadata are not reconstructed historically; an earlier cutoff is not a full database replay.")
+        for label, records in (("beliefs", key_beliefs), ("actors", key_actors), ("company actions", competitor_actions),
+                               ("customer experiences", customer_perception), ("market relationships", market_relationships),
+                               ("opposing assertions", contradictory_evidence)):
+            if not records:
+                missing_info.append(f"No recorded {label} retrieved in this scope; absence does not prove none exist.")
+        if any(ev.published_at is None for ev in subgraph.evidence):
+            missing_info.append("Some source records lack publication dates.")
+        if market_motion:
+            missing_info.extend(market_motion.coverage_gaps)
 
         # Calculate Token Count and Packet Hash
         # Candidates remain explicitly labelled; they are not observed graph facts.
         memory_observations = sorted(subgraph.memory_observations,
                                      key=lambda item: item["review_state"] != "accepted")[:40]
         missing_info.append(f"Connected memory includes {len(memory_observations)} observations in this packet; proposed records require review.")
+        if len(subgraph.memory_observations) > len(memory_observations):
+            missing_info.append(f"Memory observation budget retained {len(memory_observations)} of {len(subgraph.memory_observations)} scoped candidates; omitted candidates may change interpretation.")
+        if subgraph.evidence_retained < subgraph.evidence_considered:
+            missing_info.append(f"Retrieval retained {subgraph.evidence_retained} of {subgraph.evidence_considered} candidate source records; coverage is incomplete.")
+        for o in memory_observations:
+            if o.get("observation_type") == "company_action":
+                competitor_actions.append({**o, "qualification": "Memory candidate; review state must be respected."})
+            if o.get("observation_type") == "customer_experience":
+                customer_perception.append({**o, "qualification": "Memory candidate; review state must be respected."})
+            if o.get("meaning", {}).get("negated") or o.get("context", {}).get("stance") == "opposes":
+                contradictory_evidence.append({**o, "qualification": "Potential qualification/negation; does not necessarily oppose the queried proposition."})
+        missing_info = [gap for gap in missing_info if not (
+            (competitor_actions and gap.startswith("No recorded company actions"))
+            or (customer_perception and gap.startswith("No recorded customer experiences"))
+            or (contradictory_evidence and gap.startswith("No recorded opposing assertions")))]
         serializable_body = {
             "question": question,
             "query_scope": subgraph.query_scope,
@@ -189,6 +230,8 @@ class IntelligencePacketBuilder:
             "evidence": evidence_refs,
             "missing": missing_info,
             "memory_observations": memory_observations,
+            "graph_relationships": graph_relationships,
+            "market_motion": market_motion.model_dump(mode="json") if market_motion else None,
         }
         body_json = json.dumps(serializable_body, sort_keys=True)
         packet_hash = hashlib.sha256(body_json.encode()).hexdigest()
@@ -208,6 +251,8 @@ class IntelligencePacketBuilder:
             competitor_actions=competitor_actions,
             market_relationships=market_relationships,
             memory_observations=memory_observations,
+            graph_relationships=graph_relationships,
+            market_motion=market_motion.model_dump(mode="json") if market_motion else None,
             memesis_scores=memesis_scores,
             recent_changes=recent_changes[:10],
             historical_analogues=analogues,

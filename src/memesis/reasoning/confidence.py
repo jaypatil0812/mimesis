@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from memesis.domain.schemas import ScoreRecord
 from memesis.reasoning.contracts import ConfidenceBreakdown
+from memesis.extraction.meaning import source_family
 from memesis.retrieval.context_builder import MinimumSufficientSubgraph
 
 
@@ -49,20 +50,23 @@ class ConfidenceCalculator:
             diversity_score = 0.0
 
         # 4. Source Independence (distinct organizations / independent actors)
-        independent_groups = {n.name for n in subgraph.nodes if n.node_type.value in {"Company", "Person"}}
-        independence_score = min(len(independent_groups) / 5.0, 1.0) if independent_groups else 0.0
+        # Different actor names do not establish independent reporting.
+        independent_groups = {source_family(ev)["id"] for ev in subgraph.evidence
+                              if ev.metadata.get("independence_verified") is True}
+        independence_score = min(len(independent_groups) / 5.0, 1.0)
 
         # 5. Entity Resolution Confidence
         if subgraph.nodes:
             entity_conf = sum(n.provenance.confidence for n in subgraph.nodes) / len(subgraph.nodes)
         else:
-            entity_conf = 0.5
+            entity_conf = 0.0
 
         # 6. Temporal Consistency (are recorded dates coherent?)
-        temporal_score = 0.95
+        dated = [ev for ev in subgraph.evidence if ev.published_at is not None]
+        temporal_score = sum(ev.published_at <= ev.retrieved_at for ev in dated) / max(ev_count, 1)
 
         # 7. Contradictory Evidence Balance (was counter-evidence surfaced?)
-        contradictory_balance = 0.90 if contradictory_count > 0 else 0.75
+        contradictory_balance = min(contradictory_count / 5.0, 1.0)
 
         # 8. Graph Coverage (connectivity of retained nodes)
         if subgraph.nodes:
