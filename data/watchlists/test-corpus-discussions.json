@@ -1,0 +1,13 @@
+{
+  "name": "Test corpus - developer discussions",
+  "question": "Investigate inference cost, GPU memory and model quantization experiences. Compare project reports with independent community experiences while preserving workload differences and uncertainty.",
+  "scope": {"market_id": null, "graph_hops": 3},
+  "sources": [
+    {"source": "hackernews", "query": "inference cost"},
+    {"source": "hackernews", "query": "GPU memory"},
+    {"source": "hackernews", "query": "quantization"}
+  ],
+  "enabled": false, "interval_seconds": 21600, "initial_lookback_days": 90,
+  "page_size": 50, "max_pages_per_source": 2, "max_evidence_per_tick": 200,
+  "max_patterns": 8, "max_followups_per_cycle": 0, "max_investigation_rounds": 0
+}

@@ -59,7 +59,12 @@ There is no new investigation panel in the frontend yet.
 
 The config controls source/query allowlists, lookback, interval, graph hops,
 pages per source, evidence per tick, number of patterns and follow-up rounds.
-Supported scheduled adapters are Hacker News, Bluesky AppView, OpenAlex and RSS.
+Supported scheduled adapters are Hacker News, Bluesky AppView, OpenAlex, RSS
+and public GitHub issue/PR search. GitHub requires a `repo:owner/name` query
+boundary. Its adapter retains title/body, repository and numeric author IDs,
+creation/update timestamps and original JSON. It does not collect comment
+threads or releases. GitHub search caps/incomplete responses are coverage
+failures and cannot advance a completed checkpoint.
 This does not start a Bluesky Jetstream streaming consumer.
 
 ## Discovery and scope

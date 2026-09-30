@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from memesis.domain.schemas import EdgeType, ExtractionMethod, NodeType
 
 SCHEMA_VERSION = "phase3-v1"
-DETERMINISTIC_VERSION = "deterministic-phase3-v3"
+DETERMINISTIC_VERSION = "deterministic-phase3-v4"
 EXTRACT_PROMPT_VERSION = "evidence-graph-extract-v1"
 
 

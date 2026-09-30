@@ -8,7 +8,7 @@ INVESTIGATION_VERSION = "investigation-v1"
 
 class SourceWatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    source: Literal["hackernews", "bluesky", "openalex", "rss"]
+    source: Literal["hackernews", "bluesky", "openalex", "rss", "github"]
     query: str = Field(min_length=1, max_length=500)
     feed_url: HttpUrl | None = None
     @model_validator(mode="after")
@@ -52,7 +52,7 @@ class Followup(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=1000)
     query: str = Field(min_length=1, max_length=500)
-    source: Literal["hackernews", "bluesky", "openalex", "rss"]
+    source: Literal["hackernews", "bluesky", "openalex", "rss", "github"]
     rationale: str = Field(min_length=1, max_length=2000)
 
 class PatternCandidate(BaseModel):

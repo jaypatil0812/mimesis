@@ -14,6 +14,7 @@ from memesis.sources.bluesky import BlueskyAdapter
 from memesis.sources.hackernews import HackerNewsAdapter
 from memesis.sources.openalex import OpenAlexAdapter, RESOURCE_TYPES
 from memesis.sources.rss import RssAdapter
+from memesis.sources.github import GitHubAdapter
 
 class InvestigationWorker:
     def __init__(self, repository, store, *, adapter_factory=None, service=None):
@@ -24,6 +25,8 @@ class InvestigationWorker:
         self.service = service or InvestigationService(repository)
 
     def make_adapter(self, source):
+        if source.source == "github":
+            return GitHubAdapter(self.http)
         if source.source == "hackernews":
             return HackerNewsAdapter(self.http)
         if source.source == "bluesky":
@@ -75,6 +78,7 @@ class InvestigationWorker:
         cutoff = datetime.now(UTC) - timedelta(days=config.initial_lookback_days)
         initial = (str(int(cutoff.timestamp())) if source.source == "hackernews" else
                    cutoff.isoformat() if source.source == "bluesky" else
+                   cutoff.strftime("%Y-%m-%dT%H:%M:%SZ") if source.source == "github" else
                    json.dumps({r: cutoff.date().isoformat() for r in RESOURCE_TYPES}) if source.source == "openalex" else None)
         adapter = self.adapter_factory(source)
         try:
@@ -105,7 +109,7 @@ class InvestigationWorker:
         try:
             # Drain a growing backlog before collecting another batch; no IDs
             # disappear because an extraction budget was reached.
-            if len(pending) < 500:
+            if not pending:
                 for source in config.sources:
                     key = digest(source.model_dump(mode="json"))
                     previous = health.get(key, {})

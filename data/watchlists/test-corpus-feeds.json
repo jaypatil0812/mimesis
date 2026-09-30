@@ -1,0 +1,12 @@
+{
+  "name": "Test corpus - technical publisher feeds",
+  "question": "Investigate technical product claims and engineering changes in inference and model tooling. Company and publisher claims need qualification and comparison with user reports.",
+  "scope": {"market_id": null, "graph_hops": 3},
+  "sources": [
+    {"source": "rss", "query": "feed:huggingface", "feed_url": "https://huggingface.co/blog/feed.xml"},
+    {"source": "rss", "query": "feed:pytorch", "feed_url": "https://pytorch.org/feed.xml"}
+  ],
+  "enabled": false, "interval_seconds": 21600, "initial_lookback_days": 90,
+  "page_size": 50, "max_pages_per_source": 2, "max_evidence_per_tick": 200,
+  "max_patterns": 8, "max_followups_per_cycle": 0, "max_investigation_rounds": 0
+}

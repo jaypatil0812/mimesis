@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from dataclasses import replace
@@ -80,6 +81,9 @@ class EvidenceGraphPipeline:
         evidence_records = self.repository.list_evidence(limit) if evidence_ids is None else [
             evidence for eid in list(evidence_ids)[:limit] if (evidence := self.repository.get_evidence(eid)) is not None]
         for evidence in evidence_records:
+            # Local extraction performs synchronous database work. Yield between
+            # records so a large batch cannot starve the worker lease heartbeat.
+            await asyncio.sleep(0)
             report.evidence_seen += 1
             try:
                 processed = await self._process(evidence, report)

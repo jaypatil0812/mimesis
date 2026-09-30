@@ -342,9 +342,12 @@ class DeterministicExtractor:
             return None
         canonical = handle.removeprefix("@") or did
         identifiers = []
+        github_id = metadata.get("author_github_id")
+        if evidence.source_type == "github" and github_id:
+            identifiers.append(ExternalIdentifierProposal("github_user_id", str(github_id)))
         if did:
             identifiers.append(ExternalIdentifierProposal("bluesky_did", did))
-        if handle:
+        if handle and not (evidence.source_type == "github" and github_id):
             identifier_type = (
                 "bluesky_handle"
                 if evidence.source_type == "bluesky"
