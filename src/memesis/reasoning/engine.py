@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -21,8 +21,10 @@ from memesis.reasoning.market_motion import MarketMotionAnalyzer
 from memesis.reasoning.packet import IntelligencePacketBuilder
 from memesis.reasoning.planner import QueryPlan, QueryPlanner
 from memesis.reasoning.synthesizer import ReasoningSynthesizer
+from memesis.reasoning.support_verifier import ClaimSupportVerifier
 from memesis.reasoning.validator import EvidenceValidator
 from memesis.retrieval.context_builder import ContextBuilder, MinimumSufficientSubgraph
+from memesis.retrieval.scope import QueryScope, ScopedGraphRepository, utc
 
 
 class MemesisReasoningEngine:
@@ -47,6 +49,7 @@ class MemesisReasoningEngine:
         self.packet_builder = IntelligencePacketBuilder()
         self.synthesizer = ReasoningSynthesizer(strong_model_adapter=strong_model_adapter)
         self.validator = EvidenceValidator()
+        self.support_verifier = ClaimSupportVerifier()
         self.confidence_calc = ConfidenceCalculator()
         self.scoring_service = DeterministicScoringService(repository)
 
@@ -57,28 +60,37 @@ class MemesisReasoningEngine:
         client_context: str | None = None,
         as_of: datetime | None = None,
         force_full_context: bool = False,
+        scope: QueryScope | None = None,
     ) -> tuple[ReasoningOutput, QueryExecutionMetrics, IntelligencePacket]:
         start_time = time.perf_counter()
-        as_of = as_of or datetime.now(UTC)
+        if scope is not None and as_of is not None and utc(as_of) != scope.as_of:
+            raise ValueError("as_of must match the explicit query scope")
+        scope = scope or QueryScope(as_of=as_of or datetime.now(UTC))
+        as_of = scope.as_of
 
         # 1. Query Classification
         intent = self.classifier.classify(question)
 
         # 2. Query Planning
         plan = self.planner.create_plan(intent)
+        if scope.start_at is None and plan.time_filter_days:
+            scope = QueryScope(**{
+                **scope.model_dump(),
+                "start_at": as_of - timedelta(days=plan.time_filter_days),
+            })
+        view = ScopedGraphRepository(self.repository, scope)
 
         # 3. Deterministic Scores (compute or read from repo)
-        scores = self.repository.list_scores()
-        if not scores and plan.required_scores:
-            scoring_run = self.scoring_service.compute_all(as_of=as_of, persist=False)
-            scores = list(scoring_run.scores)
+        scores = []
+        if plan.required_scores:
+            scores = view.compute_scores()
 
         # 4. Context Retrieval (Pipeline A: full context vs Pipeline B: minimum sufficient context)
         if force_full_context:
-            # Full unconstrained context: load all nodes, all edges, all evidence
-            all_nodes = self.repository.list_nodes()
-            all_edges = self.repository.list_edges()
-            all_evidence = self.repository.list_evidence()
+            # Full retrieval removes ranking budgets, never the requested scope.
+            all_nodes = view.list_nodes()
+            all_edges = view.list_edges()
+            all_evidence = view.list_evidence()
             subgraph = MinimumSufficientSubgraph(
                 nodes=all_nodes,
                 edges=all_edges,
@@ -88,6 +100,14 @@ class MemesisReasoningEngine:
                 evidence_considered=len(all_evidence),
                 evidence_retained=len(all_evidence),
                 limits_applied={"full_context_unconstrained": 1},
+                query_scope=view.scope_metadata(),
+                coverage={
+                    **view.coverage,
+                    "retained_nodes": len(all_nodes),
+                    "retained_edges": len(all_edges),
+                    "retained_evidence": len(all_evidence),
+                },
+                evidence_membership=view.evidence_membership,
             )
             motion = self.motion_analyzer.analyze(subgraph, scores, as_of)
             analogues = self.analogue_engine.find_analogues(question, subgraph)
@@ -97,12 +117,13 @@ class MemesisReasoningEngine:
             )
         else:
             # Pipeline B: Minimum Sufficient Subgraph with Jev filtering
-            subgraph = self.context_builder.build_context(plan, scores, as_of)
+            subgraph = ContextBuilder(view, self.decision_engine).build_context(plan, scores, as_of)
             motion = self.motion_analyzer.analyze(subgraph, scores, as_of) if plan.include_market_motion else None
             analogues = self.analogue_engine.find_analogues(question, subgraph) if plan.include_historical_analogues else []
             gate = self.deep_gate.evaluate(plan)
 
         # 5. Explainable Confidence
+        scores = [score for score in scores if score.subject_id in subgraph.node_ids()]
         contra_count = sum(1 for e in subgraph.edges if e.qualifiers.get("stance") == "opposes")
         confidence = self.confidence_calc.compute_confidence(subgraph, contra_count, scores)
 
@@ -120,6 +141,13 @@ class MemesisReasoningEngine:
         # 7. Fallback Detection
         fallback_output = FallbackDetector.check_fallback(packet, subgraph, confidence)
         if fallback_output:
+            # Fallback answers are still answer outputs: run citation-integrity
+            # checks so they carry the same audit metadata as synthesized answers.
+            fallback_output = self.validator.validate(fallback_output, packet).validated_output
+            support_result = self.support_verifier.verify(fallback_output, packet)
+            fallback_output = support_result.output.model_copy(update={
+                "query_scope": packet.query_scope, "coverage": packet.coverage,
+            })
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             metrics = QueryExecutionMetrics(
                 nodes_considered=subgraph.nodes_considered,
@@ -128,7 +156,7 @@ class MemesisReasoningEngine:
                 evidence_retained=subgraph.evidence_retained,
                 jev_decisions=self.decision_engine.decisions_made,
                 cheap_model_tokens=0,
-                expensive_model_tokens=0,
+                expensive_model_tokens=support_result.input_tokens + support_result.output_tokens,
                 cache_hits=self.decision_engine.cache_hits,
                 latency_ms=round(elapsed_ms, 2),
                 deep_reasoning_invoked=False,
@@ -141,7 +169,10 @@ class MemesisReasoningEngine:
 
         # 9. Evidence Validation
         validation_result = self.validator.validate(raw_output, packet)
-        final_output = validation_result.validated_output
+        support_result = self.support_verifier.verify(validation_result.validated_output, packet)
+        final_output = support_result.output.model_copy(update={
+            "query_scope": packet.query_scope, "coverage": packet.coverage,
+        })
 
         # 10. Instrumentation & Cost Calculation
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
@@ -150,6 +181,7 @@ class MemesisReasoningEngine:
         if gate.requires_deep_reasoning:
             # Token usage estimated from packet size + output size
             expensive_tokens = packet.estimated_tokens + 500
+        expensive_tokens += support_result.input_tokens + support_result.output_tokens
 
         metrics = QueryExecutionMetrics(
             nodes_considered=subgraph.nodes_considered,
@@ -174,6 +206,8 @@ class MemesisReasoningEngine:
                     "question": question,
                     "intent": intent.model_dump(mode="json"),
                     "packet_hash": packet.packet_hash,
+                    "query_scope": packet.query_scope,
+                    "coverage": packet.coverage,
                     "deep_reasoning_required": gate.requires_deep_reasoning,
                     "model": "memesis-strategic-engine-v0.1",
                     "answer": final_output.model_dump(mode="json"),

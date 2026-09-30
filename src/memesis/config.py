@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     extract_small_model: str | None = None
     resolve_small_model: str | None = None
     reason_strong_model: str | None = None
+    verify_claim_support: bool = False
     model_api_base_url: str = "https://api.openai.com/v1"
     model_api_key: str | None = None
 

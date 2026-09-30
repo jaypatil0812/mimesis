@@ -17,6 +17,7 @@ class HistoricalAnalogue(BaseModel):
     similarity_confidence: float = Field(ge=0.0, le=1.0)
     structural_matches: dict[str, Any] = Field(default_factory=dict)
     time_lag_observed: str | None = None
+    current_evidence_ids: list[str] = Field(default_factory=list)
 
 
 class HistoricalAnalogueEngine:
@@ -107,4 +108,37 @@ class HistoricalAnalogueEngine:
             )
         )
 
-        return analogues
+        # Link each exploratory comparison to the current-side graph evidence that
+        # made the structural match possible. The historical pattern descriptions
+        # above are curated templates, not sourced historical research, so callers
+        # must keep that distinction visible.
+        pattern_edges = {
+            EdgeType.BELIEVES,
+            EdgeType.EXPRESSES,
+            EdgeType.PUBLISHED,
+            EdgeType.WORKS_AT,
+            EdgeType.AMPLIFIES,
+            EdgeType.PRECEDES,
+            EdgeType.ACTS_ON,
+            EdgeType.PARTICIPATED_IN,
+            EdgeType.BUILDS,
+            EdgeType.SERVES,
+        }
+        current_evidence_ids = sorted({
+            str(evidence_id)
+            for edge in subgraph.edges
+            if edge.edge_type in pattern_edges
+            for evidence_id in edge.provenance.evidence_ids
+        })
+        if not current_evidence_ids:
+            current_evidence_ids = sorted({
+                str(evidence_id)
+                for node in subgraph.nodes
+                if node.node_type in {NodeType.PERSON, NodeType.COMPANY, NodeType.BELIEF, NodeType.EVENT}
+                for evidence_id in node.provenance.evidence_ids
+            })
+
+        return [
+            analogue.model_copy(update={"current_evidence_ids": current_evidence_ids})
+            for analogue in analogues
+        ]

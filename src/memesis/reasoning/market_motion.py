@@ -55,8 +55,10 @@ class MarketMotionAnalyzer:
 
         # 1. Belief Velocity
         vel_records = scores_by_type.get(ScoreType.BELIEF_VELOCITY, [])
-        velocity_val = vel_records[0].value if vel_records else 65.0
-        if velocity_val >= 60.0:
+        velocity_val = vel_records[0].value if vel_records else 0.0
+        if not vel_records and subgraph.query_scope:
+            velocity_trend = "unknown"
+        elif velocity_val >= 60.0:
             velocity_trend = "increasing"
         elif velocity_val <= 40.0:
             velocity_trend = "decreasing"
@@ -128,7 +130,9 @@ class MarketMotionAnalyzer:
         ]
 
         # Determine overall motion status
-        if company_actions_count >= 2 and velocity_trend == "increasing" and conv_val > 40:
+        if velocity_trend == "unknown":
+            status = MarketMotionStatus.UNCERTAIN
+        elif company_actions_count >= 2 and velocity_trend == "increasing" and conv_val > 40:
             status = MarketMotionStatus.ACCELERATING
         elif company_actions_count == 0 and velocity_trend == "increasing":
             status = MarketMotionStatus.NASCENT

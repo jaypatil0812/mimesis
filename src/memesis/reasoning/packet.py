@@ -30,6 +30,15 @@ class IntelligencePacketBuilder:
         client_context: str | None = None,
     ) -> IntelligencePacket:
         scores = scores or []
+        available_evidence_ids = {ev.id for ev in subgraph.evidence}
+        incident_evidence_ids: dict[UUID, set[UUID]] = {}
+        for edge in subgraph.edges:
+            for node_id in (edge.from_node_id, edge.to_node_id):
+                incident_evidence_ids.setdefault(node_id, set()).update(edge.provenance.evidence_ids)
+
+        def citation_ids(record) -> list[str]:
+            ids = set(record.provenance.evidence_ids) | incident_evidence_ids.get(record.id, set())
+            return sorted(str(eid) for eid in ids if eid in available_evidence_ids)
 
         # 1. Key Beliefs
         key_beliefs: list[dict[str, Any]] = []
@@ -38,7 +47,7 @@ class IntelligencePacketBuilder:
                 key_beliefs.append({
                     "id": str(n.id),
                     "name": n.name,
-                    "evidence_ids": [str(eid) for eid in n.provenance.evidence_ids],
+                    "evidence_ids": citation_ids(n),
                 })
 
         # 2. Key Actors
@@ -52,7 +61,7 @@ class IntelligencePacketBuilder:
                     "name": n.name,
                     "attributes": n.attributes,
                     "score_summary": f"Score: {sub_score.value:.1f}" if sub_score else "Active speaker",
-                    "evidence_ids": [str(eid) for eid in n.provenance.evidence_ids],
+                    "evidence_ids": citation_ids(n),
                 })
 
         # 3. Key Companies
@@ -62,7 +71,7 @@ class IntelligencePacketBuilder:
                 key_companies.append({
                     "id": str(n.id),
                     "name": n.name,
-                    "evidence_ids": [str(eid) for eid in n.provenance.evidence_ids],
+                    "evidence_ids": citation_ids(n),
                 })
 
         # 4. Competitor Actions / Events
@@ -73,7 +82,7 @@ class IntelligencePacketBuilder:
                     "id": str(n.id),
                     "name": n.name,
                     "subtype": n.attributes.get("subtype", "event"),
-                    "evidence_ids": [str(eid) for eid in n.provenance.evidence_ids],
+                    "evidence_ids": citation_ids(n),
                 })
 
         # 5. Customer / Public Perception
@@ -84,8 +93,8 @@ class IntelligencePacketBuilder:
         for edge in subgraph.edges:
             if edge.edge_type == EdgeType.EXPRESSES:
                 stance = edge.qualifiers.get("stance")
-                ev_ids = [str(eid) for eid in edge.provenance.evidence_ids]
-                target_ev = evidence_by_id.get(edge.provenance.evidence_ids[0]) if edge.provenance.evidence_ids else None
+                ev_ids = citation_ids(edge)
+                target_ev = next((evidence_by_id[eid] for eid in edge.provenance.evidence_ids if eid in evidence_by_id), None)
                 text_snippet = target_ev.raw_text if target_ev else ""
 
                 if stance == "opposes" or any(w in text_snippet.lower() for w in ["will not", "cannot replace", "not replace"]):
@@ -112,7 +121,7 @@ class IntelligencePacketBuilder:
                     "type": edge.edge_type.value,
                     "from": node_names.get(edge.from_node_id, str(edge.from_node_id)),
                     "to": node_names.get(edge.to_node_id, str(edge.to_node_id)),
-                    "evidence_ids": [str(eid) for eid in edge.provenance.evidence_ids],
+                    "evidence_ids": citation_ids(edge),
                 })
 
         # 7. Memesis Scores
@@ -123,6 +132,9 @@ class IntelligencePacketBuilder:
                 "subject": node_names.get(s.subject_id, str(s.subject_id)),
                 "value": round(s.value, 1),
                 "formula": s.formula,
+                "as_of": s.as_of.isoformat(),
+                "window_start": s.window_start.isoformat() if s.window_start else None,
+                "window_end": s.window_end.isoformat() if s.window_end else None,
             })
 
         # 8. Recent Changes
@@ -142,6 +154,9 @@ class IntelligencePacketBuilder:
                 "source_url": str(ev.source_url),
                 "source_type": ev.source_type,
                 "text": ev.raw_text,
+                "published_at": ev.published_at.isoformat() if ev.published_at else None,
+                "retrieved_at": ev.retrieved_at.isoformat(),
+                "scope_membership": subgraph.evidence_membership.get(str(ev.id)),
             })
 
         # 10. Missing Information
@@ -153,6 +168,8 @@ class IntelligencePacketBuilder:
         # Calculate Token Count and Packet Hash
         serializable_body = {
             "question": question,
+            "query_scope": subgraph.query_scope,
+            "coverage": subgraph.coverage,
             "client_context": client_context,
             "intent": intent.model_dump(mode="json"),
             "beliefs": key_beliefs,
@@ -165,7 +182,7 @@ class IntelligencePacketBuilder:
             "recent_changes": recent_changes[:10],
             "analogues": [a.model_dump(mode="json") for a in analogues],
             "contradictions": contradictory_evidence,
-            "evidence": evidence_refs[:25],
+            "evidence": evidence_refs,
             "missing": missing_info,
         }
         body_json = json.dumps(serializable_body, sort_keys=True)
@@ -175,6 +192,8 @@ class IntelligencePacketBuilder:
 
         return IntelligencePacket(
             question=question,
+            query_scope=subgraph.query_scope,
+            coverage=subgraph.coverage,
             client_context=client_context,
             query_intent=intent,
             key_beliefs=key_beliefs,

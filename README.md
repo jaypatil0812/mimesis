@@ -72,6 +72,26 @@ To enable the optional fallback, configure `MEMESIS_MODEL_API_KEY` and
 ambiguous. Model output that lacks exact source offsets, valid graph endpoints, or literal
 supporting text is rejected before it can create graph records.
 
+## Reasoning evidence audit
+
+Market and date boundaries are shared by workspace reads, reasoning retrieval and
+score computation. See [Market and date scope](docs/MARKET_SCOPING.md) for API/CLI
+parameters, adjacent-market exploration and historical-cutoff semantics.
+
+Reasoning answers keep claims linked to packet evidence. A resolvable citation means
+the source record is available; it does not by itself prove that the source supports
+the claim. The API and CLI expose citation-link status, source text and timestamps,
+and an audit record. Historical analogy matches are heuristic and their curated
+historical templates are explicitly marked as unsourced.
+
+An optional advisory support check can assess cited observed and inferred claims:
+set `MEMESIS_VERIFY_CLAIM_SUPPORT=true`, `MEMESIS_MODEL_API_KEY`, and
+`MEMESIS_REASON_STRONG_MODEL`. The configured OpenAI-compatible model receives only
+the cited source excerpts and returns a support annotation. Speculative claims stay
+in the answer as exploratory hypotheses; unsupported, unresolved, or unverified
+claims are never removed or rewritten by this check. The model judgment is not a
+truth score and should be reviewed before relying on it.
+
 The 30-example fixture is at
 `data/evaluation/phase3_examples.json`. It includes topics that must not become beliefs,
 falsifiable propositions, stable-identifier alias resolution, same-name non-merges,

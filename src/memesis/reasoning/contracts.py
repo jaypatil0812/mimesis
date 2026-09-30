@@ -23,6 +23,9 @@ class ClaimStatement(BaseModel):
     epistemic_status: EpistemicStatus
     evidence_ids: list[str] = Field(default_factory=list)
     downgraded_reason: str | None = None
+    evidence_link_status: str = "not_checked"
+    evidence_support_status: str = "not_checked"
+    evidence_support_note: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -30,6 +33,9 @@ class ClaimStatement(BaseModel):
             "status": self.epistemic_status.value,
             "evidence_ids": self.evidence_ids,
             "downgraded_reason": self.downgraded_reason,
+            "evidence_link_status": self.evidence_link_status,
+            "evidence_support_status": self.evidence_support_status,
+            "evidence_support_note": self.evidence_support_note,
         }
 
 
@@ -48,6 +54,8 @@ class ConfidenceBreakdown(BaseModel):
 
 class IntelligencePacket(BaseModel):
     question: str
+    query_scope: dict[str, Any] = Field(default_factory=dict)
+    coverage: dict[str, Any] = Field(default_factory=dict)
     client_context: str | None = None
     query_intent: QueryIntent
     key_beliefs: list[dict[str, Any]] = Field(default_factory=list)
@@ -68,6 +76,8 @@ class IntelligencePacket(BaseModel):
 
 class ReasoningOutput(BaseModel):
     summary: str
+    query_scope: dict[str, Any] = Field(default_factory=dict)
+    coverage: dict[str, Any] = Field(default_factory=dict)
     what_is_happening: list[ClaimStatement] = Field(default_factory=list)
     who_matters: list[ClaimStatement] = Field(default_factory=list)
     what_they_believe: list[ClaimStatement] = Field(default_factory=list)
@@ -82,3 +92,5 @@ class ReasoningOutput(BaseModel):
     confidence: ConfidenceBreakdown
     evidence_references: list[str] = Field(default_factory=list)
     fallback_status: str | None = None
+    citation_audit: dict[str, Any] = Field(default_factory=dict)
+    summary_evidence_ids: list[str] = Field(default_factory=list)

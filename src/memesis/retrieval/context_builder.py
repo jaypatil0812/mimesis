@@ -14,6 +14,7 @@ from memesis.domain.schemas import CanonicalNode, EdgeType, Evidence, GraphEdge,
 from memesis.graph.repository import GraphRepository
 from memesis.reasoning.decision_engine import DecisionEngine, DecisionType
 from memesis.reasoning.planner import QueryPlan
+from memesis.retrieval.scope import QueryScope, ScopedGraphRepository, utc
 
 
 class MinimumSufficientSubgraph(BaseModel):
@@ -26,6 +27,9 @@ class MinimumSufficientSubgraph(BaseModel):
     evidence_retained: int
     ranking_breakdown: dict[str, float] = Field(default_factory=dict)
     limits_applied: dict[str, int] = Field(default_factory=dict)
+    query_scope: dict[str, Any] = Field(default_factory=dict)
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    evidence_membership: dict[str, str] = Field(default_factory=dict)
 
     def node_ids(self) -> set[UUID]:
         return {node.id for node in self.nodes}
@@ -50,18 +54,22 @@ class ContextBuilder:
         scores: list[ScoreRecord] | None = None,
         as_of: datetime | None = None,
     ) -> MinimumSufficientSubgraph:
-        as_of = as_of or datetime.now(UTC)
+        as_of = utc(as_of or datetime.now(UTC))
         scores = scores or []
-        scores_by_subject: dict[UUID, list[ScoreRecord]] = defaultdict(list)
-        for s in scores:
-            scores_by_subject[s.subject_id].append(s)
-
-        all_nodes = self.repository.list_nodes()
-        all_edges = self.repository.list_edges()
-        all_evidence = self.repository.list_evidence()
-
-        # Step 1: Filter nodes by time window if specified
         cutoff_time = as_of - timedelta(days=plan.time_filter_days) if plan.time_filter_days else None
+        view = self.repository if isinstance(self.repository, ScopedGraphRepository) else ScopedGraphRepository(
+            self.repository, QueryScope(as_of=as_of, start_at=cutoff_time)
+        )
+        all_nodes = view.list_nodes()
+        all_edges = view.list_edges()
+        all_evidence = view.list_evidence()
+        scoped_node_ids = {node.id for node in all_nodes}
+        scoped_evidence_ids = {ev.id for ev in all_evidence}
+        scores_by_subject: dict[UUID, list[ScoreRecord]] = defaultdict(list)
+        for score in scores:
+            if (score.subject_id in scoped_node_ids and utc(score.as_of) <= as_of
+                    and set(score.evidence_ids) <= scoped_evidence_ids):
+                scores_by_subject[score.subject_id].append(score)
 
         # Step 2: Seed nodes matching query entities and keywords
         query_text = plan.intent.raw_query.lower()
@@ -91,12 +99,6 @@ class ContextBuilder:
             for edge in all_edges:
                 if edge.edge_type.value not in allowed_edge_types:
                     continue
-                if cutoff_time and edge.recorded_at:
-                    # Normalize: SQLite stores naive datetimes; strip tz for comparison
-                    edge_dt = edge.recorded_at.replace(tzinfo=None) if edge.recorded_at.tzinfo is None else edge.recorded_at
-                    cutoff_dt = cutoff_time.replace(tzinfo=None) if edge_dt.tzinfo is None else cutoff_time
-                    if edge_dt < cutoff_dt:
-                        continue
                 if edge.from_node_id in current_hop_ids or edge.to_node_id in current_hop_ids:
                     candidate_edges[edge.id] = edge
                     next_hop_ids.add(edge.from_node_id)
@@ -107,6 +109,14 @@ class ContextBuilder:
             current_hop_ids = next_hop_ids
 
         nodes_considered = len(candidate_nodes)
+
+        # The market boundary already selected a bounded web of supported paths.
+        # Keep bridging relations and connected hypotheses, even without lexical matches.
+        if view.scope.market_id is not None:
+            candidate_nodes = {node.id: node for node in all_nodes}
+            candidate_edges = {edge.id: edge for edge in all_edges}
+            seed_ids.add(view.scope.market_id)
+            nodes_considered = len(candidate_nodes)
 
         # Step 4: Apply Jev-style cheap relevance filtering
         filtered_nodes: dict[UUID, CanonicalNode] = {}
@@ -121,7 +131,7 @@ class ContextBuilder:
                 "references": [str(nid)],
             }
             rel_dec = self.decision_engine.evaluate(DecisionType.RELEVANCE, ctx)
-            if rel_dec.decision == "RELEVANT" or node.id in seed_ids:
+            if rel_dec.decision == "RELEVANT" or node.id in seed_ids or view.scope.market_id is not None:
                 filtered_nodes[nid] = node
 
         # Step 5: Rank nodes within their type
@@ -177,6 +187,9 @@ class ContextBuilder:
             candidate_evidence_ids.update(node.provenance.evidence_ids)
         for edge in retained_edges:
             candidate_evidence_ids.update(edge.provenance.evidence_ids)
+        candidate_evidence_ids.update(
+            ev.id for ev in all_evidence if set(ev.entity_ids) & retained_node_ids
+        )
 
         evidence_considered = len(candidate_evidence_ids)
         evidence_by_id = {ev.id: ev for ev in all_evidence}
@@ -207,4 +220,13 @@ class ContextBuilder:
             evidence_retained=len(retained_evidence_objs),
             ranking_breakdown={str(nid): round(node_scores.get(nid, 0.0), 2) for nid in retained_node_ids},
             limits_applied=limits_applied,
+            query_scope=view.scope_metadata(),
+            coverage={
+                **view.coverage,
+                "retained_nodes": len(retained_nodes),
+                "retained_edges": len(retained_edges),
+                "retained_evidence": len(retained_evidence_objs),
+                "retrieval_limits_applied": limits_applied,
+            },
+            evidence_membership=view.evidence_membership,
         )

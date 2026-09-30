@@ -13,7 +13,12 @@ from memesis.reasoning.contracts import ClaimStatement, EpistemicStatus, Intelli
 class ValidationResult(BaseModel):
     validated_output: ReasoningOutput
     claims_checked: int
-    claims_supported: int
+    claims_supported: int = Field(
+        description="Legacy non-downgraded count; this does not mean semantic support was verified."
+    )
+    claims_with_valid_citations: int
+    claims_without_valid_citations: int
+    invalid_citations_removed: int
     claims_downgraded: int
     unsupported_claims_detected: int
     contradictions_surfaced: int
@@ -21,41 +26,66 @@ class ValidationResult(BaseModel):
 
 
 class EvidenceValidator:
-    """Validates every substantive claim against stored evidence; downgrades or strips unsupported assertions."""
+    """Checks citation integrity without suppressing exploratory analysis.
+
+    A citation resolving to a packet record proves only that the source is available
+    for inspection. This validator does not claim that the source semantically entails
+    the attached claim; that remains a reviewer or separately evaluated verifier task.
+    """
 
     def validate(self, output: ReasoningOutput, packet: IntelligencePacket) -> ValidationResult:
-        known_evidence_ids = {ev.get("id") for ev in packet.primary_evidence_references if ev.get("id")}
-        known_counter_texts = [item.get("statement", "").lower() for item in packet.contradictory_evidence]
+        known_evidence_ids = {
+            str(ev.get("id"))
+            for ev in packet.primary_evidence_references
+            if ev.get("id")
+        }
 
         claims_checked = 0
         claims_supported = 0
+        claims_with_valid_citations = 0
+        claims_without_valid_citations = 0
+        invalid_citations_removed = 0
         claims_downgraded = 0
         unsupported_claims_detected = 0
         contradictions_surfaced = len(packet.contradictory_evidence)
         audit_log: list[dict[str, Any]] = []
 
         def _validate_claim(claim: ClaimStatement) -> ClaimStatement:
-            nonlocal claims_checked, claims_supported, claims_downgraded, unsupported_claims_detected
+            nonlocal claims_checked, claims_supported, claims_with_valid_citations
+            nonlocal claims_without_valid_citations, invalid_citations_removed
+            nonlocal claims_downgraded, unsupported_claims_detected
             claims_checked += 1
 
-            # Check cited evidence IDs
-            valid_cites = [eid for eid in claim.evidence_ids if eid in known_evidence_ids]
+            # Keep only references the answer packet can actually resolve.
+            original_cites = [str(eid) for eid in claim.evidence_ids]
+            valid_cites = list(
+                dict.fromkeys(eid for eid in original_cites if eid in known_evidence_ids)
+            )
+            removed_cites = len(original_cites) - len(valid_cites)
+            invalid_citations_removed += removed_cites
+            if valid_cites:
+                claims_with_valid_citations += 1
+                link_status = "linked_not_semantically_verified"
+            else:
+                claims_without_valid_citations += 1
+                link_status = "invalid_citation_removed" if original_cites else "uncited_exploration"
 
             if claim.epistemic_status == EpistemicStatus.OBSERVED:
                 if not valid_cites:
-                    # Downgrade OBSERVED to INFERRED because it lacks exact evidence span reference
+                    # Downgrade OBSERVED because it lacks a resolvable source record.
                     claims_downgraded += 1
                     unsupported_claims_detected += 1
                     audit_log.append({
                         "claim": claim.text[:80],
                         "action": "downgrade_to_inferred",
-                        "reason": "Observed claim lacked valid evidence span ID in intelligence packet.",
+                        "reason": "Observed claim lacked a resolvable source record in the intelligence packet.",
                     })
                     return ClaimStatement(
                         text=claim.text,
                         epistemic_status=EpistemicStatus.INFERRED,
                         evidence_ids=[],
-                        downgraded_reason="Lacks direct evidence span; downgraded from OBSERVED to INFERRED.",
+                        downgraded_reason="No resolvable source record; retained as an inference.",
+                        evidence_link_status=link_status,
                     )
                 else:
                     claims_supported += 1
@@ -63,6 +93,8 @@ class EvidenceValidator:
                         text=claim.text,
                         epistemic_status=EpistemicStatus.OBSERVED,
                         evidence_ids=valid_cites,
+                        downgraded_reason=claim.downgraded_reason,
+                        evidence_link_status=link_status,
                     )
 
             elif claim.epistemic_status == EpistemicStatus.INFERRED:
@@ -74,6 +106,8 @@ class EvidenceValidator:
                     text=clean_text,
                     epistemic_status=EpistemicStatus.INFERRED,
                     evidence_ids=valid_cites,
+                    downgraded_reason=claim.downgraded_reason,
+                    evidence_link_status=link_status,
                 )
 
             elif claim.epistemic_status == EpistemicStatus.SPECULATIVE:
@@ -92,6 +126,11 @@ class EvidenceValidator:
                     text=clean_text,
                     epistemic_status=EpistemicStatus.SPECULATIVE,
                     evidence_ids=valid_cites,
+                    downgraded_reason=(
+                        claim.downgraded_reason
+                        or ("Exploratory hypothesis; no evidence link was retrieved." if not valid_cites else None)
+                    ),
+                    evidence_link_status=("exploratory_uncited" if not valid_cites else link_status),
                 )
 
             return claim
@@ -99,6 +138,8 @@ class EvidenceValidator:
         # Validate all claim lists
         validated = ReasoningOutput(
             summary=output.summary,
+            query_scope=output.query_scope,
+            coverage=output.coverage,
             what_is_happening=[_validate_claim(c) for c in output.what_is_happening],
             who_matters=[_validate_claim(c) for c in output.who_matters],
             what_they_believe=[_validate_claim(c) for c in output.what_they_believe],
@@ -111,14 +152,47 @@ class EvidenceValidator:
             contradictory_evidence=[_validate_claim(c) for c in output.contradictory_evidence],
             unknown_or_missing=output.unknown_or_missing,
             confidence=output.confidence,
-            evidence_references=list(known_evidence_ids),
+            evidence_references=sorted(known_evidence_ids),
             fallback_status=output.fallback_status,
+            summary_evidence_ids=sorted({
+                evidence_id
+                for section in (
+                    output.what_is_happening,
+                    output.who_matters,
+                    output.what_they_believe,
+                    output.company_actions,
+                    output.perception,
+                    output.what_changed,
+                    output.adjacent_markets,
+                    output.possible_implications,
+                    output.contradictory_evidence,
+                )
+                for claim in section
+                for evidence_id in claim.evidence_ids
+                if evidence_id in known_evidence_ids
+            } | {
+                evidence_id
+                for analogue in output.historical_analogues
+                for evidence_id in analogue.current_evidence_ids
+                if evidence_id in known_evidence_ids
+            }),
+            citation_audit={
+                "claims_checked": claims_checked,
+                "claims_with_valid_citations": claims_with_valid_citations,
+                "claims_without_valid_citations": claims_without_valid_citations,
+                "invalid_citations_removed": invalid_citations_removed,
+                "citation_links_are_not_semantic_support_verification": True,
+                "exploratory_claims_preserved": True,
+            },
         )
 
         return ValidationResult(
             validated_output=validated,
             claims_checked=claims_checked,
             claims_supported=claims_supported,
+            claims_with_valid_citations=claims_with_valid_citations,
+            claims_without_valid_citations=claims_without_valid_citations,
+            invalid_citations_removed=invalid_citations_removed,
             claims_downgraded=claims_downgraded,
             unsupported_claims_detected=unsupported_claims_detected,
             contradictions_surfaced=contradictions_surfaced,

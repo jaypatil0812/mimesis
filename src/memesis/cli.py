@@ -280,6 +280,12 @@ def _parser() -> argparse.ArgumentParser:
     ask.add_argument("question", help="the user question")
     ask.add_argument("--client-context", help="optional client context")
     ask.add_argument("--full-context", action="store_true", help="force full-context unconstrained pipeline A")
+    ask.add_argument("--market-id", type=UUID, help="anchor retrieval in this market's evidence-backed graph")
+    ask.add_argument("--start-at", type=datetime.fromisoformat, help="inclusive publication window start (ISO-8601)")
+    ask.add_argument("--as-of", type=datetime.fromisoformat, help="inclusive publication cutoff (ISO-8601)")
+    ask.add_argument("--time-basis", choices=("published_at", "known_at"), default="published_at")
+    ask.add_argument("--graph-hops", type=int, choices=range(1, 7), default=3)
+    ask.add_argument("--no-adjacent-markets", action="store_true", help="exclude explicitly adjacent market branches")
 
     profile = commands.add_parser(
         "profile",
@@ -353,6 +359,7 @@ def main() -> None:
         _print(DeterministicScoringService(repository).explain(args.score_id))
         return
     if args.command == "ask":
+        from memesis.retrieval.scope import QueryScope
         repository = _repository(args.database_url, initialize=True)
         seed_phase5_fixture(repository)
         engine = MemesisReasoningEngine(repository)
@@ -360,12 +367,20 @@ def main() -> None:
             args.question,
             client_context=args.client_context,
             force_full_context=args.full_context,
+            scope=QueryScope(
+                market_id=args.market_id, start_at=args.start_at,
+                as_of=args.as_of or datetime.now(UTC), time_basis=args.time_basis,
+                graph_hops=args.graph_hops, include_adjacent_markets=not args.no_adjacent_markets,
+            ),
         )
         _print({
             "question": args.question,
             "pipeline": "pipeline_a_full_context" if args.full_context else "pipeline_b_memesis",
             "answer": output,
             "metrics": metrics,
+            "evidence": packet.primary_evidence_references,
+            "query_scope": packet.query_scope,
+            "coverage": packet.coverage,
             "packet_summary": {
                 "hash": packet.packet_hash,
                 "estimated_tokens": packet.estimated_tokens,
