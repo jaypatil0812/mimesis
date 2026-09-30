@@ -291,6 +291,8 @@ def evaluate_phase5(repository: GraphRepository, output_path: Path | None = None
 
     report = {
         "status": "COMPLETED",
+        "provider_comparison_valid": False,
+        "execution_semantics": "Fixture execution/retrieval regression; not intelligence quality or Jev-versus-frontier evaluation",
         "limitations": ["This measures execution and retrieval, not semantic answer quality.",
                         "Absent providers cannot establish real model token savings or successful strategic reasoning."],
         "evaluation_name": "Phase 5 Decision & Reasoning Engine Benchmark",

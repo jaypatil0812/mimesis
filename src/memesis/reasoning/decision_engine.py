@@ -602,8 +602,7 @@ class TypeSafeJevDecisionEngine:
 
         # 3. High-fidelity Offline Calibrated Jev Engine
         dec, prob, meta, dist = self._jev_systemone_eval(decision_type, context, allowed)
-        latency_ms = (time.perf_counter() - start_t) * 1000.0 + 85.0  # realistic Jev ~70-120ms
-        cost_usd = (input_tokens / 1_000_000.0) * self.PRICE_PER_M_INPUT_TOKENS
+        latency_ms = (time.perf_counter() - start_t) * 1000.0
 
         return DecisionResult(
             decision_type=decision_type,
@@ -620,13 +619,17 @@ class TypeSafeJevDecisionEngine:
             input_references=input_refs,
             timestamp=datetime.now(UTC),
             latency_ms=round(latency_ms, 2),
-            input_tokens=input_tokens,
+            input_tokens=0,
             output_tokens=0,
-            cost_estimate_usd=round(cost_usd, 7),
+            cost_estimate_usd=0.0,
             metadata={
                 "primitive": primitive.value,
                 "allowed_outputs": allowed,
                 "offline_calibrated": True,
+                "execution_mode": "simulation",
+                "provider_call_attempted": bool(self.api_key or self.openrouter_api_key),
+                "provider_usage_available": False,
+                "latency_semantics": "measured local fallback including attempted requests; not Jev inference latency",
                 **meta,
             },
         )
@@ -788,7 +791,10 @@ class TypeSafeJevDecisionEngine:
                         input_tokens=input_tokens,
                         output_tokens=0,
                         cost_estimate_usd=round(cost, 7),
-                        metadata={"raw": body},
+                        metadata={"raw": body, "execution_mode": "live", "provider_call_succeeded": True,
+                            "request_hash": hashlib.sha256(data).hexdigest(),
+                            "response_hash": hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest(),
+                            "allowed_outputs": allowed, "usage_source": "local_estimate", "cost_source": "price_assumption"},
                     )
         except Exception:
             return None
@@ -849,10 +855,14 @@ class TypeSafeJevDecisionEngine:
                         input_hash=hashlib.sha256(json.dumps(context).encode()).hexdigest(),
                         input_references=[str(r) for r in context.get("references", [])],
                         latency_ms=round(latency_ms, 2),
-                        input_tokens=input_tokens,
-                        output_tokens=body.get("usage", {}).get("completion_tokens", 10),
+                        input_tokens=body.get("usage", {}).get("prompt_tokens", input_tokens),
+                        output_tokens=body.get("usage", {}).get("completion_tokens", 0),
                         cost_estimate_usd=round(cost, 7),
-                        metadata={"raw": parsed},
+                        metadata={"raw": parsed, "execution_mode": "live", "provider_call_succeeded": True,
+                            "request_hash": hashlib.sha256(data).hexdigest(),
+                            "response_hash": hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest(),
+                            "allowed_outputs": allowed, "usage_source": "provider_reported" if body.get("usage") else "unavailable",
+                            "cost_source": "price_assumption"},
                     )
         except Exception:
             return None
@@ -860,9 +870,9 @@ class TypeSafeJevDecisionEngine:
 
 
 class FrontierLLMDecisionEngine:
-    """Frontier LLM (GPT-4o / Claude 3.5 Sonnet class) structured decision model for benchmarking."""
+    """Legacy offline simulator. No frontier provider request is implemented."""
 
-    VERSION = "frontier-llm-v1"
+    VERSION = "frontier-simulation-v2"
     INPUT_COST_PER_M = 2.50
     OUTPUT_COST_PER_M = 10.00
 
@@ -885,13 +895,9 @@ class FrontierLLMDecisionEngine:
 
         jev_engine = TypeSafeJevDecisionEngine()
         dec, prob, meta, dist = jev_engine._jev_systemone_eval(decision_type, context, allowed)
-        prob = min(prob + 0.04, 0.99)
         decision = dec
 
-        latency_ms = (time.perf_counter() - start_t) * 1000.0 + 850.0  # realistic LLM 600-1200ms
-        cost_usd = (input_tokens / 1_000_000.0) * self.INPUT_COST_PER_M + (
-            output_tokens / 1_000_000.0
-        ) * self.OUTPUT_COST_PER_M
+        latency_ms = (time.perf_counter() - start_t) * 1000.0
 
         dist = {
             opt: (prob if opt == decision else round((1.0 - prob) / max(len(allowed) - 1, 1), 3))
@@ -906,17 +912,19 @@ class FrontierLLMDecisionEngine:
             primitive=DECISION_PRIMITIVES.get(decision_type, DecisionPrimitive.CHOICE),
             confidence=prob,
             confidence_bucket=_assign_confidence_bucket(prob),
-            provider="frontier-llm",
+            provider="frontier-simulated",
             model=self.VERSION,
             version=self.VERSION,
             input_hash=hashlib.sha256(context_str.encode()).hexdigest(),
             input_references=[str(r) for r in context.get("references", [])],
             timestamp=datetime.now(UTC),
             latency_ms=round(latency_ms, 2),
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_estimate_usd=round(cost_usd, 6),
-            metadata={"benchmark_class": "frontier_sota", **meta},
+            input_tokens=0,
+            output_tokens=0,
+            cost_estimate_usd=0.0,
+            metadata={"benchmark_class": "offline_simulation", "execution_mode": "simulation",
+                "provider_call_attempted": False, "provider_usage_available": False,
+                "latency_semantics": "measured local computation; not frontier inference latency", **meta},
         )
 
 
@@ -992,28 +1000,29 @@ class CachedDecisionEngine:
     ) -> DecisionResult:
         context_str = json.dumps(context, sort_keys=True, default=str)
         context_hash = hashlib.sha256(context_str.encode()).hexdigest()
-        cache_key = hashlib.sha256(f"{decision_type.value}:{context_hash}".encode()).hexdigest()
+        identity = {"class": type(self.engine).__name__, "version": getattr(self.engine, "VERSION", "quality-v1"),
+                    "model": getattr(self.engine, "model", None), "base_url": getattr(self.engine, "base_url", None),
+                    "credentials_present": bool(getattr(self.engine, "api_key", None)),
+                    "openrouter_credentials_present": bool(getattr(self.engine, "openrouter_api_key", None)),
+                    "jev_model": getattr(getattr(self.engine, "jev", None), "model", None),
+                    "jev_url": getattr(getattr(self.engine, "jev", None), "base_url", None),
+                    "jev_credentials_present": bool(getattr(getattr(self.engine, "jev", None), "api_key", None)
+                        or getattr(getattr(self.engine, "jev", None), "openrouter_api_key", None))}
+        contract = allowed_outputs or STANDARD_ALLOWED_OUTPUTS.get(decision_type, [])
+        cache_key = hashlib.sha256(json.dumps(["decision-cache-v2", decision_type.value, context_hash, identity, contract], sort_keys=True).encode()).hexdigest()
 
         if cache_key in self._memory_cache:
             self.cache_hits += 1
-            return self._memory_cache[cache_key]
+            result = self._memory_cache[cache_key]
+            return result.model_copy(update={"metadata": {**result.metadata, "cache_hit": True}})
 
         if self.repository and hasattr(self.repository, "get_decision_cache"):
             stored = self.repository.get_decision_cache(cache_key)
             if stored:
                 self.cache_hits += 1
-                res = DecisionResult(
-                    decision_type=DecisionType(stored["decision_type"]),
-                    decision=str(stored["decision"]),
-                    probability=float(stored["probability"]),
-                    model=str(stored["model"]),
-                    version=str(stored["version"]),
-                    input_references=list(stored["result"].get("input_references", [])),
-                    timestamp=datetime.fromisoformat(stored["created_at"]),
-                    metadata=dict(stored["result"].get("metadata", {})),
-                )
+                res = DecisionResult.model_validate(stored["result"])
                 self._memory_cache[cache_key] = res
-                return res
+                return res.model_copy(update={"metadata": {**res.metadata, "cache_hit": True}})
 
         self.decisions_made += 1
         result = self.engine.evaluate(decision_type, context, allowed_outputs)
@@ -1029,10 +1038,7 @@ class CachedDecisionEngine:
                     "version": result.version,
                     "decision": result.decision,
                     "probability": result.probability,
-                    "result": {
-                        "input_references": result.input_references,
-                        "metadata": result.metadata,
-                    },
+                    "result": result.model_dump(mode="json"),
                 },
             )
 

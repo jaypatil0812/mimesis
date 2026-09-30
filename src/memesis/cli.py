@@ -302,12 +302,54 @@ def _parser() -> argparse.ArgumentParser:
 
     eval5 = commands.add_parser("evaluate-phase5", help="evaluate Phase 5 reasoning engine across 10 queries")
     eval5.add_argument("--output", default="data/evaluation/phase5_report.json", help="path to save evaluation report")
+    quality = commands.add_parser("quality-run", help="isolated intelligence diagnostics and a human review template")
+    quality.add_argument("--dataset", type=Path, default=REPO_ROOT / "data/evaluation/intelligence_quality_v1.json")
+    quality.add_argument("--output-dir", type=Path, required=True)
+    quality.add_argument("--live-reasoning", action="store_true", help="explicitly allow configured reasoning calls")
+    sample = commands.add_parser("quality-sample", help="read-only public evidence and investigation review export")
+    sample.add_argument("--output-dir", type=Path, required=True)
+    sample.add_argument("--limit", type=int, default=24)
+    sample.add_argument("--investigate-question", action="store_true", help="also run the question against existing sampled connected memory")
+    sample.add_argument("--question", default="What's the next big thing?")
+    review = commands.add_parser("quality-score", help="score trace-bound explicit human reviews")
+    review.add_argument("--report", type=Path, required=True)
+    review.add_argument("--reviews", type=Path, required=True)
+    review.add_argument("--output", type=Path, required=True)
+    comparison = commands.add_parser("quality-compare", help="audit submitted paired live provider receipts")
+    comparison.add_argument("--traces", type=Path, required=True)
+    comparison.add_argument("--output", type=Path, required=True)
     return parser
 
 
 def main() -> None:
     configure_logging(settings.log_level)
     args = _parser().parse_args()
+    if args.command.startswith("quality-"):
+        from memesis.quality.service import run_suite, review_template, review_guide, score_reviews, write_new, sample_live, export_live_investigations, investigate_live_question, compare_provider_traces
+        if args.command == "quality-run":
+            report = asyncio.run(run_suite(json.loads(args.dataset.read_text(encoding="utf-8")), live_reasoning=args.live_reasoning))
+            write_new(args.output_dir / "report.json", report)
+            write_new(args.output_dir / "reviews.json", review_template(report))
+            with (args.output_dir / "review.md").open("x", encoding="utf-8") as stream:
+                stream.write(review_guide(report))
+            _print({"output_dir": str(args.output_dir), "draft_diagnostics": report["draft_diagnostics"], "human_reviewed_quality": None})
+        elif args.command == "quality-sample":
+            repository = _repository(args.database_url)
+            sample = sample_live(repository, args.limit)
+            write_new(args.output_dir / "public-sample.json", sample)
+            write_new(args.output_dir / "live-investigations.json", export_live_investigations(repository))
+            if args.investigate_question:
+                write_new(args.output_dir / "decision-question.json", investigate_live_question(repository, sample, args.question))
+            _print({"output_dir": str(args.output_dir), "human_review_status": "pending"})
+        elif args.command == "quality-score":
+            result = score_reviews(json.loads(args.report.read_text(encoding="utf-8")), json.loads(args.reviews.read_text(encoding="utf-8")))
+            write_new(args.output, result)
+            _print(result)
+        else:
+            result = compare_provider_traces(json.loads(args.traces.read_text(encoding="utf-8")))
+            write_new(args.output, result)
+            _print(result)
+        return
     if args.command in {"worker", "watch-create"}:
         from memesis.investigations.contracts import InvestigationConfig
         from memesis.investigations.store import InvestigationStore
