@@ -8,6 +8,7 @@ from memesis.db.session import make_engine, make_session_factory
 from memesis.graph.sql_repository import SqlGraphRepository
 from memesis.logging_config import configure_logging
 from memesis.web.api import api_router
+from memesis.investigations.api import router as investigation_router
 
 
 def create_app(database_url: str | None = None) -> FastAPI:
@@ -35,6 +36,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     # Mount JSON API router
     app.include_router(api_router)
+    app.include_router(investigation_router)
 
     return app
 

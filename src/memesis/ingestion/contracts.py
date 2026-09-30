@@ -32,3 +32,6 @@ class CollectionBatch:
     api_requests: int = 0
     cache_hits: int = 0
     failures: list[dict[str, str]] = field(default_factory=list)
+    complete: bool = True
+    continuation_cursor: str | None = None
+    coverage_notes: list[str] = field(default_factory=list)

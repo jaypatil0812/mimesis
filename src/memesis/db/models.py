@@ -11,6 +11,59 @@ class Base(DeclarativeBase):
     pass
 
 
+class InvestigationRow(Base):
+    __tablename__ = "investigation"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    state_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    revision: Mapped[int] = mapped_column(default=1)
+    enabled: Mapped[bool] = mapped_column(default=False, index=True)
+    next_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    running_run_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class InvestigationRunRow(Base):
+    __tablename__ = "investigation_run"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    investigation_id: Mapped[str] = mapped_column(ForeignKey("investigation.id"), index=True)
+    revision: Mapped[int] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    receipt_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class InvestigationSnapshotRow(Base):
+    __tablename__ = "investigation_snapshot"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    investigation_id: Mapped[str] = mapped_column(ForeignKey("investigation.id"), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("investigation_run.id"))
+    fingerprint: Mapped[str] = mapped_column(String(64), index=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PatternReviewRow(Base):
+    __tablename__ = "pattern_review"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    investigation_id: Mapped[str] = mapped_column(ForeignKey("investigation.id"), index=True)
+    pattern_id: Mapped[str] = mapped_column(String(64), index=True)
+    state: Mapped[str] = mapped_column(String(20), nullable=False)
+    reviewer: Mapped[str] = mapped_column(String(200), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class WorkerLeaseRow(Base):
+    __tablename__ = "worker_lease"
+    name: Mapped[str] = mapped_column(String(80), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(36), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class SourceRow(Base):
     __tablename__ = "source"
 

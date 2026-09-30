@@ -32,17 +32,22 @@ class HackerNewsAdapter:
         return active_api_policy(source_id, "https://hn.algolia.com/about", rate_limit=120)
 
     async def collect(self, query: str, *, cursor: str | None, limit: int) -> CollectionBatch:
+        state = json.loads(cursor) if cursor and cursor.startswith("{") else {
+            "since": cursor, "until": int(datetime.now(UTC).timestamp()), "page": 0, "high_water": cursor}
         params: dict[str, object] = {
             "query": query,
             "tags": "(story,comment)",
             "hitsPerPage": min(limit, 100),
             "typoTolerance": "false",
+            "page": state["page"],
         }
         # `search_by_date` is newest-first. Treat the checkpoint as a
         # high-water mark rather than an Algolia page number, which is only
         # appropriate for an explicit historical backfill.
-        if cursor:
-            params["numericFilters"] = f"created_at_i>{cursor}"
+        filters = [f"created_at_i<{state['until']}"]
+        if state["since"]:
+            filters.insert(0, f"created_at_i>={state['since']}")
+        params["numericFilters"] = ",".join(filters)
         response = await self._http.get(
             "https://hn.algolia.com/api/v1/search_by_date", params=params, min_interval_seconds=0.5
         )
@@ -82,7 +87,16 @@ class HackerNewsAdapter:
                     },
                 )
             )
-        next_cursor = str(max(timestamps)) if timestamps else cursor
+        next_cursor = str(max(timestamps + ([int(state["high_water"])] if state["high_water"] else []))) if timestamps or state["high_water"] else None
+        state["high_water"] = next_cursor
+        pages = payload.get("nbPages")
+        complete = state["page"] + 1 >= int(pages) if pages is not None else len(payload.get("hits", [])) < params["hitsPerPage"]
+        failures = []
+        if complete and pages is not None and int(payload.get("nbHits", 0)) > int(pages) * int(params["hitsPerPage"]):
+            failures = [{"source": "hackernews", "error": "provider_result_cap; narrow query/window before checkpoint can advance"}]
+        state["page"] += 1
         return CollectionBatch(
-            documents, next_cursor, response.request_count, int(response.from_cache)
+            documents, next_cursor, response.request_count, int(response.from_cache), failures,
+            complete=complete, continuation_cursor=json.dumps(state),
+            coverage_notes=["Search index coverage and late indexing are not guaranteed; timestamp overlap is deduplicated."]
         )

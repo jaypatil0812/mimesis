@@ -32,7 +32,7 @@ from memesis.extraction.deterministic import DeterministicExtractor
 from memesis.extraction.resolution import EntityResolver
 from memesis.graph.repository import GraphRepository
 from memesis.knowledge.memory import ConnectedMarketMemory
-from memesis.extraction.meaning import attribution
+from memesis.extraction.meaning import attribution, MEMORY_VERSION
 
 MAX_FALLBACK_CHARS = 6_000
 
@@ -65,6 +65,7 @@ class EvidenceGraphPipeline:
         *,
         cheap_model: StructuredExtractionModel | None = None,
         ambiguity_model: StructuredExtractionModel | None = None,
+        interpretation_version: str = "memory-worker-v1",
     ) -> None:
         self.repository = repository
         self.extractor = DeterministicExtractor()
@@ -72,10 +73,13 @@ class EvidenceGraphPipeline:
         self.memory = ConnectedMarketMemory(repository)
         self.cheap_model = cheap_model
         self.ambiguity_model = ambiguity_model
+        self.interpretation_version = interpretation_version
 
-    async def run(self, *, limit: int | None = None) -> EvidenceGraphReport:
+    async def run(self, *, limit: int | None = None, evidence_ids=None) -> EvidenceGraphReport:
         report = EvidenceGraphReport()
-        for evidence in self.repository.list_evidence(limit):
+        evidence_records = self.repository.list_evidence(limit) if evidence_ids is None else [
+            evidence for eid in list(evidence_ids)[:limit] if (evidence := self.repository.get_evidence(eid)) is not None]
+        for evidence in evidence_records:
             report.evidence_seen += 1
             try:
                 processed = await self._process(evidence, report)
@@ -91,15 +95,17 @@ class EvidenceGraphPipeline:
 
     async def _process(self, evidence: Evidence, report: EvidenceGraphReport) -> bool:
         if evidence.document_version_id is None:
+            report.failures.append({"evidence_id": str(evidence.id), "error": "Missing preserved document version"})
             return False
         normalized = self.repository.get_normalized_document_for_version(
             evidence.document_version_id
         )
         if normalized is None:
+            report.failures.append({"evidence_id": str(evidence.id), "error": "Missing normalized document; normalization required"})
             return False
         cache_key = self._cache_key(
             evidence.content_hash,
-            DETERMINISTIC_VERSION,
+            DETERMINISTIC_VERSION + ":" + self.interpretation_version,
             "|".join(
                 model.model_name
                 for model in (self.cheap_model, self.ambiguity_model)
@@ -140,6 +146,7 @@ class EvidenceGraphPipeline:
                 for start, end in deterministic.ambiguous_spans
             ]
             for batch in self._span_batches(span_pack):
+                report.llm_calls += 1
                 model_result = await self.cheap_model.extract(
                     json.dumps(batch, ensure_ascii=False),
                     context={"source_type": evidence.source_type, "offsets_are_original": True},
@@ -149,7 +156,6 @@ class EvidenceGraphPipeline:
                 if not model_result.extraction_model or not model_result.prompt_version:
                     raise ValueError("cheap model result lacks model or prompt version")
                 results.append(model_result)
-                report.llm_calls += 1
                 report.input_tokens += model_result.input_tokens
                 report.output_tokens += model_result.output_tokens
                 if self.ambiguity_model and model_result.ambiguous_spans:
@@ -162,6 +168,8 @@ class EvidenceGraphPipeline:
                         for start, end in model_result.ambiguous_spans
                     ]
                     for strong_batch in self._span_batches(strong_pack):
+                        report.llm_calls += 1
+                        report.strong_model_calls += 1
                         strong_result = await self.ambiguity_model.extract(
                             json.dumps(strong_batch, ensure_ascii=False),
                             context={
@@ -177,8 +185,6 @@ class EvidenceGraphPipeline:
                         ):
                             raise ValueError("ambiguity model result lacks required lineage")
                         results.append(strong_result)
-                        report.llm_calls += 1
-                        report.strong_model_calls += 1
                         report.input_tokens += strong_result.input_tokens
                         report.output_tokens += strong_result.output_tokens
 
@@ -198,7 +204,7 @@ class EvidenceGraphPipeline:
                 {
                     "evidence_id": evidence.id,
                     "content_hash": evidence.content_hash,
-                    "extractor_version": DETERMINISTIC_VERSION,
+                    "extractor_version": DETERMINISTIC_VERSION + ":" + self.interpretation_version,
                     "prompt_version": results[-1].prompt_version,
                     "schema_version": SCHEMA_VERSION,
                     "model": results[-1].extraction_model,
@@ -446,6 +452,7 @@ class EvidenceGraphPipeline:
                 "extractor_version": extractor_version,
                 "ontology": "memesis-0.1",
                 "schema": SCHEMA_VERSION,
+                "memory": MEMORY_VERSION,
                 "model": model,
                 "prompt": prompt_version,
             },

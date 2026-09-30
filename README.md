@@ -25,6 +25,9 @@
 
 ---
 
+Current local backend additions: [evidence-dependent answers](docs/EVIDENCE_REASONING.md)
+and [continuous bounded investigations](docs/INVESTIGATIONS.md).
+
 ## 🎯 The Core Thesis
 
 Most AI market intelligence fails in two ways:

@@ -36,6 +36,7 @@ class ScopeOptions(BaseModel):
 
 class QueryScope(ScopeOptions):
     market_id: UUID | None = None
+    evidence_seeds: tuple[UUID, ...] | None = None
 
 
 class ScopedGraphRepository:
@@ -187,6 +188,20 @@ class ScopedGraphRepository:
             selected_edges = eligible_edges
             selected_evidence_ids = evidence_ids
 
+        if scope.evidence_seeds is not None:
+            roots = set(scope.evidence_seeds) & selected_evidence_ids
+            seeded_nodes = {node.id for node in selected_nodes if set(node.provenance.evidence_ids) & roots}
+            seeded_nodes.update(nid for edge in selected_edges if set(edge.provenance.evidence_ids) & roots
+                                for nid in (edge.from_node_id, edge.to_node_id))
+            reached = set(seeded_nodes)
+            for _ in range(scope.graph_hops):
+                frontier = frozenset(reached)
+                reached.update(nid for edge in selected_edges if edge.from_node_id in frontier or edge.to_node_id in frontier
+                               for nid in (edge.from_node_id, edge.to_node_id))
+            selected_edges = [edge for edge in selected_edges if edge.from_node_id in reached and edge.to_node_id in reached]
+            selected_nodes = [node for node in selected_nodes if node.id in reached]
+            selected_evidence_ids = roots | {eid for edge in selected_edges for eid in edge.provenance.evidence_ids}
+
         self.nodes = selected_nodes
         self.edges = selected_edges
         self.evidence = [
@@ -218,6 +233,7 @@ class ScopedGraphRepository:
             "limits": [
                 "Coverage is only the stored, linked corpus; absence is not evidence of no market activity.",
                 "Canonical entity metadata is not versioned; this is not a complete historical database replay.",
+                *( ["Evidence-seeded research follows bounded typed paths; it does not automatically assign collected results to a market."] if scope.evidence_seeds is not None else [] ),
             ],
         }
 

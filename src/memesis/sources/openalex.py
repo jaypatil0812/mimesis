@@ -68,16 +68,21 @@ class OpenAlexAdapter:
         )
 
     async def collect(self, query: str, *, cursor: str | None, limit: int) -> CollectionBatch:
-        saved_boundaries = json.loads(cursor) if cursor else {}
+        saved = json.loads(cursor) if cursor else {}
+        state = saved if "paging" in saved else {"boundaries": saved, "paging": {r: "*" for r in RESOURCE_TYPES}, "high_water": dict(saved)}
+        saved_boundaries = state["boundaries"]
         next_boundaries: dict[str, str | None] = {}
         documents: list[CollectedDocument] = []
         requests = cache_hits = 0
         failures: list[dict[str, str]] = []
         for resource in RESOURCE_TYPES:
+            if state["paging"].get(resource) is None:
+                continue
             params: dict[str, Any] = {
                 "search": query,
                 "per-page": min(limit, 25),
                 "select": SELECT_FIELDS[resource],
+                "cursor": state["paging"][resource],
             }
             # An inclusive daily high-water mark avoids revisiting historical
             # search results while hashes safely absorb same-day overlap.
@@ -100,15 +105,20 @@ class OpenAlexAdapter:
                     if document:
                         documents.append(document)
                 next_boundaries[resource] = max(
-                    updated_dates, default=saved_boundaries.get(resource)
+                    updated_dates + ([state["high_water"][resource]] if state["high_water"].get(resource) else []), default=saved_boundaries.get(resource)
                 )
+                state["high_water"][resource] = next_boundaries[resource]
+                state["paging"][resource] = payload.get("meta", {}).get("next_cursor")
             except (
                 Exception
             ) as error:  # source-isolated: other OpenAlex resource types still complete
                 failures.append({"resource": resource, "error": type(error).__name__})
                 next_boundaries[resource] = saved_boundaries.get(resource)
+        complete = not any(state["paging"].values()) and not failures
         return CollectionBatch(
-            documents, json.dumps(next_boundaries, sort_keys=True), requests, cache_hits, failures
+            documents, json.dumps(state["high_water"], sort_keys=True), requests, cache_hits, failures,
+            complete=complete, continuation_cursor=json.dumps(state, sort_keys=True),
+            coverage_notes=["Search metadata coverage only; abstracts and full text may be unavailable."]
         )
 
     @staticmethod

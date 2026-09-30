@@ -1,0 +1,19 @@
+{
+  "name": "AI inference public-source investigation",
+  "question": "Investigate recurring customer pain, belief/action sequences, competitor changes, messaging/experience differences and adjacent requirements. Keep alternative explanations and counterevidence visible.",
+  "scope": {"market_id": null, "graph_hops": 3, "time_basis": "published_at", "include_adjacent_markets": true},
+  "sources": [
+    {"source": "hackernews", "query": "inference cost"},
+    {"source": "bluesky", "query": "inference cost"}
+  ],
+  "enabled": false,
+  "interval_seconds": 3600,
+  "initial_lookback_days": 14,
+  "page_size": 20,
+  "max_pages_per_source": 1,
+  "max_evidence_per_tick": 50,
+  "max_patterns": 6,
+  "max_followups_per_cycle": 1,
+  "max_investigation_rounds": 2,
+  "processing_version": "memory-worker-v1"
+}

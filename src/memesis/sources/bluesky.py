@@ -45,11 +45,17 @@ class BlueskyAdapter:
         return active_api_policy(source_id, "https://bsky.social/about/support/tos", rate_limit=60)
 
     async def collect(self, query: str, *, cursor: str | None, limit: int) -> CollectionBatch:
+        state = json.loads(cursor) if cursor and cursor.startswith("{") else {
+            "since": cursor, "until": datetime.now(UTC).isoformat(), "page_cursor": None, "high_water": cursor,
+            "seen": 0, "hits_total": None}
         params: dict[str, object] = {"q": query, "limit": min(limit, 100), "sort": "latest"}
         # An opaque pagination cursor walks older results on future runs.
         # AppView's timestamp boundary keeps scheduled collection forward-only.
-        if cursor:
-            params["since"] = cursor
+        if state["since"]:
+            params["since"] = state["since"]
+        params["until"] = state["until"]
+        if state["page_cursor"]:
+            params["cursor"] = state["page_cursor"]
         response = await self._http.get(
             "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts",
             params=params,
@@ -64,11 +70,22 @@ class BlueskyAdapter:
             for value in (_time(str(post.get("indexedAt") or "")),)
             if value is not None
         ]
+        state["seen"] += len(payload.get("posts", []))
+        state["hits_total"] = payload.get("hitsTotal", state["hits_total"])
+        complete = not payload.get("cursor")
+        failures = []
+        if complete and state["hits_total"] and state["seen"] < int(state["hits_total"]):
+            failures.append({"source": "bluesky", "error": "provider_result_cap; narrow query/window before checkpoint can advance"})
+        state["page_cursor"] = payload.get("cursor")
+        # Use the frozen search bound rather than indexedAt: search sortAt can differ.
+        next_cursor = state["until"] if complete else state["since"]
         return CollectionBatch(
             [item for item in documents if item is not None],
-            max(indexed_at).isoformat() if indexed_at else cursor,
+            next_cursor,
             response.request_count,
             int(response.from_cache),
+            failures, complete=complete, continuation_cursor=json.dumps(state),
+            coverage_notes=["AppView search is not a full archive; cursor exhaustion does not prove exhaustive platform coverage."]
         )
 
     @staticmethod

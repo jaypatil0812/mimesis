@@ -38,7 +38,7 @@ def test_hackernews_checkpoint_is_forward_high_water_mark():
     )
     batch = asyncio.run(HackerNewsAdapter(http).collect("AI infrastructure", cursor="99", limit=3))
     assert batch.next_cursor == "120"
-    assert http.calls[0][1]["numericFilters"] == "created_at_i>99"
+    assert http.calls[0][1]["numericFilters"].startswith("created_at_i>=99,created_at_i<")
 
 
 def test_bluesky_and_jetstream_normalize_to_common_document_envelope():
@@ -64,7 +64,7 @@ def test_bluesky_and_jetstream_normalize_to_common_document_envelope():
     assert batch.documents[0].__class__ is CollectedDocument
     assert jetstream is not None and jetstream.__class__ is CollectedDocument
     assert http.calls[0][1]["since"] == "2026-09-28T00:00:00+00:00"
-    assert batch.next_cursor == "2026-09-29T01:00:00+00:00"
+    assert batch.next_cursor == http.calls[0][1]["until"]
 
 
 def test_openalex_searches_all_required_resources_with_limited_fields():

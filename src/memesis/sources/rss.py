@@ -12,6 +12,7 @@ import feedparser
 from memesis.domain.schemas import Source, SourcePolicy
 from memesis.ingestion.contracts import CollectedDocument, CollectionBatch
 from memesis.ingestion.http import ResilientHttpClient
+from memesis.ingestion.http import HttpResult
 from memesis.ingestion.normalizer import normalize_text
 
 
@@ -53,10 +54,12 @@ class RssAdapter:
         )
 
     async def collect(self, query: str, *, cursor: str | None, limit: int) -> CollectionBatch:
-        response = await self._http.get(self._feed_url, min_interval_seconds=1.0)
+        state = json.loads(cursor) if cursor and cursor.startswith("{") else {}
+        response = HttpResult(state["body"], 200, {}, True, 0) if "body" in state else await self._http.get(self._feed_url, min_interval_seconds=1.0)
+        retrieved_at = datetime.fromisoformat(state["retrieved_at"]) if "retrieved_at" in state else datetime.now(UTC)
         feed = feedparser.parse(response.body)
         documents: list[CollectedDocument] = []
-        query_terms = {term for term in query.casefold().split() if len(term) > 2}
+        query_terms = set() if query.startswith("feed:") else {term for term in query.casefold().split() if len(term) > 2}
         for entry in feed.entries:
             title = str(entry.get("title") or "")
             summary = normalize_text(str(entry.get("summary") or entry.get("description") or ""))
@@ -68,8 +71,8 @@ class RssAdapter:
             if not link or not external_id:
                 continue
             entry_cursor = str(entry.get("updated") or entry.get("published") or external_id)
-            if cursor and entry_cursor <= cursor:
-                continue
+            # Revisit the finite feed: undated entries, edits and non-ISO dates
+            # cannot safely be ordered by a string watermark. Hashes deduplicate.
             documents.append(
                 CollectedDocument(
                     external_id=external_id,
@@ -79,7 +82,7 @@ class RssAdapter:
                     raw_payload=json.dumps(dict(entry), sort_keys=True, default=str),
                     text=text,
                     original_reference=title or summary[:280],
-                    retrieved_at=datetime.now(UTC),
+                    retrieved_at=retrieved_at,
                     published_at=_entry_time(entry),
                     content_type="application/rss+xml",
                     metadata={
@@ -91,9 +94,15 @@ class RssAdapter:
                 )
             )
         documents.sort(key=lambda item: str(item.metadata["entry_cursor"]))
+        offset = state.get("offset", 0)
+        complete = offset + limit >= len(documents)
         return CollectionBatch(
-            documents[:limit],
-            str(documents[-1].metadata["entry_cursor"]) if documents else cursor,
+            documents[offset:offset + limit],
+            None,
             response.request_count,
             int(response.from_cache),
+            [{"source": "rss", "error": "invalid_feed"}] if feed.bozo and not feed.entries else [],
+            complete=complete,
+            continuation_cursor=json.dumps({"offset": offset + limit, "body": response.body, "retrieved_at": retrieved_at.isoformat()}) if not complete else None,
+            coverage_notes=["Finite feed contents only; disappeared historical entries require an archive source."]
         )

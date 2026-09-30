@@ -33,6 +33,13 @@ class IngestionReport:
     cache_hits: int = 0
     llm_calls: int = 0
     runtime_seconds: float = 0.0
+    pages_fetched: int = 0
+    pagination_complete: bool = False
+    checkpoint_advanced: bool = False
+    evidence_ids: list[str] = field(default_factory=list)
+    coverage_notes: list[str] = field(default_factory=list)
+    namespace: str = ""
+    started_at: str = ""
 
     @property
     def estimated_cost_usd(self) -> float:
@@ -52,53 +59,76 @@ class IngestionService:
         self._repository = repository
 
     async def collect(
-        self, adapter: SourceAdapter, query: str, *, limit: int = 5
+        self, adapter: SourceAdapter, query: str, *, limit: int = 5,
+        max_pages: int = 1, namespace: str = "", initial_cursor: str | None = None,
+        lease_owner: str | None = None,
     ) -> IngestionReport:
         started = datetime.now(UTC)
         source = self._repository.add_source(adapter.source)
-        policy = self._repository.get_active_source_policy(source.id)
+        policy = (self._repository.get_latest_source_policy(source.id) if hasattr(self._repository, "get_latest_source_policy")
+                  else self._repository.get_active_source_policy(source.id))
         if policy is None:
             policy = self._repository.add_source_policy(adapter.source_policy(source.id))
         if not policy.active:
             raise PermissionError(f"collection blocked: no active policy for {source.source_key}")
 
-        report = IngestionReport(source_key=source.source_key, query=query)
+        report = IngestionReport(source_key=source.source_key, query=query, namespace=namespace, started_at=started.isoformat())
         run_id = self._repository.start_collection_run(source.id, query)
-        boundary_key = f"query:{sha256_text(query.casefold())}"
-        cursor = self._repository.get_collection_cursor(source.id, boundary_key)
+        if limit < 1 or max_pages < 1:
+            raise ValueError("collection budgets must be positive")
+        boundary_key = (f"watch:{sha256_text(namespace)}:" if namespace else "") + f"query:{sha256_text(query)}"
+        cursor = self._repository.get_collection_cursor(source.id, boundary_key) or initial_cursor
+        pending_key = boundary_key + ":pending"
+        cursor = self._repository.get_collection_cursor(source.id, pending_key) or cursor
         try:
-            batch = await adapter.collect(query, cursor=cursor, limit=limit)
-            report.documents_fetched = len(batch.documents)
-            report.external_api_requests = batch.api_requests
-            report.cache_hits = batch.cache_hits
-            report.failures.extend(batch.failures)
-            for collected in batch.documents:
-                outcome = self._persist_document(source.id, collected)
-                if outcome == "emitted":
-                    report.documents_persisted += 1
-                    report.normalized_evidence_emitted += 1
-                elif outcome == "duplicate":
-                    report.duplicates_removed += 1
-            # A connector's opaque boundary becomes durable only after every
-            # document was safely handled and the adapter reported no failure.
-            if not batch.failures:
-                self._repository.save_collection_cursor(
-                    source.id,
-                    boundary_key,
-                    batch.next_cursor,
-                    {"query": query, "normalizer_version": NORMALIZER_VERSION},
-                )
+            for _ in range(max_pages):
+                batch = await adapter.collect(query, cursor=cursor, limit=limit)
+                report.pages_fetched += 1
+                report.documents_fetched += len(batch.documents)
+                report.external_api_requests += batch.api_requests
+                report.cache_hits += batch.cache_hits
+                report.failures.extend(batch.failures)
+                report.coverage_notes.extend(batch.coverage_notes)
+                for collected in batch.documents:
+                    outcome = self._persist_document(source.id, collected)
+                    if outcome == "emitted":
+                        report.documents_persisted += 1
+                        report.normalized_evidence_emitted += 1
+                    elif outcome == "duplicate":
+                        report.duplicates_removed += 1
+                    evidence = self._repository.find_evidence_by_hash(sha256_text(normalize_text(collected.text)))
+                    if evidence and str(evidence.id) not in report.evidence_ids:
+                        report.evidence_ids.append(str(evidence.id))
+                # Durable receipt precedes any cursor advance. An interrupted
+                # worker can recover extraction IDs without re-fetching a page.
+                if hasattr(self._repository, "record_collection_progress"):
+                    self._repository.record_collection_progress(run_id, report.as_metrics())
+                if batch.failures:
+                    break
+                if batch.complete:
+                    self._repository.save_collection_cursor(source.id, boundary_key, batch.next_cursor,
+                        {"query": query, "normalizer_version": NORMALIZER_VERSION}, **({"lease_owner": lease_owner} if lease_owner else {}))
+                    self._repository.save_collection_cursor(source.id, pending_key, None, {}, **({"lease_owner": lease_owner} if lease_owner else {}))
+                    report.pagination_complete = report.checkpoint_advanced = True
+                    break
+                if not batch.continuation_cursor or batch.continuation_cursor == cursor:
+                    raise ValueError("pagination made no progress")
+                cursor = batch.continuation_cursor
+                self._repository.save_collection_cursor(source.id, pending_key, cursor,
+                    {"query": query, "completed_checkpoint_unchanged": True}, **({"lease_owner": lease_owner} if lease_owner else {}))
+            if not report.pagination_complete and not report.failures:
+                report.coverage_notes.append("Page budget reached; scan will resume. Completed checkpoint unchanged.")
             report.runtime_seconds = (datetime.now(UTC) - started).total_seconds()
             self._repository.finish_collection_run(
                 run_id,
-                status="completed" if not report.failures else "partial",
+                status="completed" if report.pagination_complete and not report.failures else "partial",
                 metrics=report.as_metrics(),
                 errors=report.failures,
             )
             return report
         except Exception as error:
             report.failures.append(
-                {"source": source.source_key, "error": f"{type(error).__name__}: {error}"}
+                {"source": source.source_key, "error": type(error).__name__}
             )
             report.runtime_seconds = (datetime.now(UTC) - started).total_seconds()
             self._repository.finish_collection_run(

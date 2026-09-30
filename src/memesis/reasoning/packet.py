@@ -200,6 +200,8 @@ class IntelligencePacketBuilder:
             missing_info.append(f"Memory observation budget retained {len(memory_observations)} of {len(subgraph.memory_observations)} scoped candidates; omitted candidates may change interpretation.")
         if subgraph.evidence_retained < subgraph.evidence_considered:
             missing_info.append(f"Retrieval retained {subgraph.evidence_retained} of {subgraph.evidence_considered} candidate source records; coverage is incomplete.")
+        if subgraph.evidence_retained < subgraph.coverage.get("scoped_evidence", 0):
+            missing_info.append(f"The packet contains {subgraph.evidence_retained} of {subgraph.coverage['scoped_evidence']} scoped source records; node and evidence budgets may omit relevant paths.")
         for o in memory_observations:
             if o.get("observation_type") == "company_action":
                 competitor_actions.append({**o, "qualification": "Memory candidate; review state must be respected."})

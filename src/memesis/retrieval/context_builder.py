@@ -75,9 +75,10 @@ class ContextBuilder:
         # Step 2: Seed nodes matching query entities and keywords
         query_text = plan.intent.raw_query.lower()
         seed_nodes: list[CanonicalNode] = []
+        investigation = plan.retrieval_strategy == "investigation_graph"
         for node in all_nodes:
             name_lower = node.name.lower()
-            if any(e.lower() in name_lower for e in plan.intent.entities):
+            if investigation or any(e.lower() in name_lower for e in plan.intent.entities):
                 seed_nodes.append(node)
             elif any(w in name_lower for w in ["small", "model", "specialized", "inference", "router", "routing", "latency", "cost"]):
                 seed_nodes.append(node)
@@ -122,6 +123,12 @@ class ContextBuilder:
         # Step 4: Apply Jev-style cheap relevance filtering
         filtered_nodes: dict[UUID, CanonicalNode] = {}
         for nid, node in candidate_nodes.items():
+            if investigation:
+                # Scope and typed paths already select these nodes. Semantic
+                # relevance calls cannot prune investigation seeds and would
+                # add one provider request per node without changing selection.
+                filtered_nodes[nid] = node
+                continue
             # Check relevance
             ctx = {
                 "id": str(nid),
@@ -144,10 +151,16 @@ class ContextBuilder:
         node_scores: dict[UUID, float] = {}
         for nid, node in filtered_nodes.items():
             score = 0.0
+            if investigation:
+                timestamp = node.provenance.published_at or node.provenance.retrieved_at
+                age_days = max((as_of - utc(timestamp)).total_seconds() / 86400, 0)
+                score += 30 / (1 + age_days)
+                if set(node.provenance.evidence_ids) & set(view.scope.evidence_seeds or ()):
+                    score += 30
             # Relevance boost
             if any(e.lower() in node.name.lower() for e in plan.intent.entities):
                 score += 40.0
-            elif any(w in node.name.lower() for w in ["small", "specialized", "inference", "cost", "routing"]):
+            elif not investigation and any(w in node.name.lower() for w in ["small", "specialized", "inference", "cost", "routing"]):
                 score += 25.0
 
             # Degree / connectivity boost
@@ -201,8 +214,14 @@ class ContextBuilder:
         # Rank evidence by relevance to query & directness
         def _ev_rank(ev: Evidence) -> float:
             score = 10.0
+            if investigation:
+                timestamp = ev.published_at or ev.retrieved_at
+                age_days = max((as_of - utc(timestamp)).total_seconds() / 86400, 0)
+                score += 30 / (1 + age_days)
+                if ev.id in (view.scope.evidence_seeds or ()):
+                    score += 60
             txt = (ev.raw_text or "").lower()
-            if any(term in txt for term in ["small", "specialized", "inference", "cost", "latency"]):
+            if not investigation and any(term in txt for term in ["small", "specialized", "inference", "cost", "latency"]):
                 score += 30.0
             if ev.extraction_method.value in {"source_explicit", "deterministic"}:
                 score += 20.0

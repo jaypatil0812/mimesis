@@ -236,6 +236,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-url", help="override MEMESIS_DATABASE_URL")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("health", help="check database connectivity")
+    worker = commands.add_parser("worker", help="explicit scheduled collection/investigation worker")
+    worker.add_argument("--once", action="store_true", help="execute one bounded tick and exit")
+    worker.add_argument("--poll-seconds", type=int, default=30)
+    watch = commands.add_parser("watch-create", help="create an investigation from a JSON configuration")
+    watch.add_argument("config_file", type=Path)
     commands.add_parser("db-upgrade", help="apply Alembic migrations")
     demo = commands.add_parser("demo", help="create and retrieve a provenance-backed demo graph")
     demo.add_argument("--database-url", dest="demo_database_url", help=argparse.SUPPRESS)
@@ -303,6 +308,23 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     configure_logging(settings.log_level)
     args = _parser().parse_args()
+    if args.command in {"worker", "watch-create"}:
+        from memesis.investigations.contracts import InvestigationConfig
+        from memesis.investigations.store import InvestigationStore
+        from memesis.investigations.worker import InvestigationWorker
+        repository = _repository(args.database_url, initialize=True)
+        store = InvestigationStore(repository.session_factory)
+        if args.command == "watch-create":
+            _print(store.create(InvestigationConfig.model_validate_json(args.config_file.read_text(encoding="utf-8"))))
+        else:
+            if args.poll_seconds < 5:
+                raise SystemExit("Worker poll interval must be at least five seconds")
+            worker_instance = InvestigationWorker(repository, store)
+            if args.once:
+                _print(asyncio.run(worker_instance.tick()))
+            else:
+                asyncio.run(worker_instance.serve(args.poll_seconds))
+        return
     if args.database_url:
         settings.database_url = args.database_url
     if args.command == "db-upgrade":

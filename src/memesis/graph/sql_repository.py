@@ -80,6 +80,10 @@ NODE_SCHEMAS: dict[NodeType, type[CanonicalNode]] = {
 
 class SqlGraphRepository:
     """Graph adapter; SQLAlchemy permits PostgreSQL production and SQLite tests."""
+    @property
+    def session_factory(self):
+        return self._sessions
+
 
     def __init__(self, sessions: sessionmaker[Session]):
         self._sessions = sessions
@@ -266,6 +270,12 @@ class SqlGraphRepository:
             )
             return self._policy_from_row(row) if row else None
 
+    def get_latest_source_policy(self, source_id):
+        with self._sessions() as session:
+            row = session.scalar(select(SourcePolicyRow).where(SourcePolicyRow.source_id == str(source_id))
+                                 .order_by(SourcePolicyRow.reviewed_at.desc()).limit(1))
+            return self._policy_from_row(row) if row else None
+
     def find_document_version_by_hash(self, content_hash: str) -> DocumentVersion | None:
         """Find exact prior material across sources for deterministic deduplication."""
         with self._sessions() as session:
@@ -292,9 +302,12 @@ class SqlGraphRepository:
             return row.cursor if row else None
 
     def save_collection_cursor(
-        self, source_id: UUID, boundary_key: str, cursor: str | None, metadata: dict[str, object]
+        self, source_id: UUID, boundary_key: str, cursor: str | None, metadata: dict[str, object], *, lease_owner=None
     ) -> None:
         with self._sessions.begin() as session:
+            if lease_owner is not None:
+                from memesis.investigations.store import InvestigationStore
+                InvestigationStore.fenced(session, lease_owner)
             row = session.scalar(
                 select(CollectionCursorRow).where(
                     CollectionCursorRow.source_id == str(source_id),
@@ -374,6 +387,18 @@ class SqlGraphRepository:
                 )
             )
         return run_id
+
+    def record_collection_progress(self, run_id, metrics):
+        with self._sessions.begin() as session:
+            row = session.get(CollectionRunRow, str(run_id))
+            row.metrics = metrics
+
+    def collection_receipts(self, namespace, after=None):
+        with self._sessions() as session:
+            statement = select(CollectionRunRow).where(CollectionRunRow.metrics["namespace"].as_string().startswith(namespace))
+            if after:
+                statement = statement.where(CollectionRunRow.started_at >= datetime.fromisoformat(after))
+            return [row.metrics for row in session.scalars(statement.order_by(CollectionRunRow.started_at))]
 
     def finish_collection_run(
         self,
