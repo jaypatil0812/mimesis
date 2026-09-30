@@ -166,6 +166,10 @@ class IntelligencePacketBuilder:
         ]
 
         # Calculate Token Count and Packet Hash
+        # Candidates remain explicitly labelled; they are not observed graph facts.
+        memory_observations = sorted(subgraph.memory_observations,
+                                     key=lambda item: item["review_state"] != "accepted")[:40]
+        missing_info.append(f"Connected memory includes {len(memory_observations)} observations in this packet; proposed records require review.")
         serializable_body = {
             "question": question,
             "query_scope": subgraph.query_scope,
@@ -184,6 +188,7 @@ class IntelligencePacketBuilder:
             "contradictions": contradictory_evidence,
             "evidence": evidence_refs,
             "missing": missing_info,
+            "memory_observations": memory_observations,
         }
         body_json = json.dumps(serializable_body, sort_keys=True)
         packet_hash = hashlib.sha256(body_json.encode()).hexdigest()
@@ -202,6 +207,7 @@ class IntelligencePacketBuilder:
             customer_public_perception=customer_perception,
             competitor_actions=competitor_actions,
             market_relationships=market_relationships,
+            memory_observations=memory_observations,
             memesis_scores=memesis_scores,
             recent_changes=recent_changes[:10],
             historical_analogues=analogues,

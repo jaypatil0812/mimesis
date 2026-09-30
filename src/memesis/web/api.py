@@ -7,6 +7,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from memesis.domain.schemas import (
     EdgeType,
@@ -18,6 +19,68 @@ from memesis.reasoning.engine import MemesisReasoningEngine
 from memesis.retrieval.scope import QueryScope, ScopeOptions, ScopedGraphRepository, utc
 
 api_router = APIRouter(prefix="/api")
+
+
+class MemoryProposalRequest(BaseModel):
+    evidence_id: UUID
+    subject_id: UUID
+    target_id: UUID | None = None
+    observation_type: Literal["attributed_claim", "company_statement", "company_action", "customer_experience", "relationship", "interpretation", "identity_link", "belief_equivalence"]
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryReviewRequest(BaseModel):
+    state: Literal["accepted", "rejected", "proposed", "superseded"]
+    reviewer: str = Field(min_length=1)
+    note: str = Field(min_length=1)
+
+
+@api_router.get("/memory/observations")
+def list_memory_observations(request: Request,
+                             review_state: Literal["proposed", "accepted", "rejected", "superseded"] | None = None,
+                             entity_id: UUID | None = None, offset: int = Query(0, ge=0),
+                             limit: int = Query(100, ge=1, le=500)):
+    from memesis.knowledge.memory import observation_dict
+    records = _get_repo(request).list_memory_assertions(review_state)
+    if entity_id:
+        records = [r for r in records if r.subject_id == entity_id or r.object_value.get("target_id") == str(entity_id)]
+    return {"total": len(records), "offset": offset, "observations": [observation_dict(r, _get_repo(request)) for r in records[offset:offset + limit]]}
+
+
+@api_router.post("/memory/observations")
+def propose_memory_observation(request: Request, proposal: MemoryProposalRequest):
+    from memesis.extraction.contracts import ObservationProposal
+    from memesis.domain.schemas import ExtractionMethod
+    from memesis.knowledge.memory import ConnectedMarketMemory, observation_dict
+    repo = _get_repo(request)
+    evidence = repo.get_evidence(proposal.evidence_id)
+    subject = repo.get_node(proposal.subject_id)
+    target = repo.get_node(proposal.target_id) if proposal.target_id else None
+    if evidence is None or subject is None or (proposal.target_id and target is None):
+        raise HTTPException(404, "Evidence or connection endpoint not found")
+    normalized = repo.get_normalized_document_for_version(evidence.document_version_id) if evidence.document_version_id else None
+    if normalized is None:
+        raise HTTPException(422, "Evidence requires a stored normalized document")
+    try:
+        record = ConnectedMarketMemory(repo).record(evidence, normalized, ObservationProposal(
+            proposal.observation_type, proposal.start, proposal.end, subject_key="subject",
+            context={**proposal.context, "target_key": "target"}, confidence=1.0,
+        ), {"subject": subject, "target": target}, extraction_method=ExtractionMethod.ANALYST)
+        return observation_dict(record)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@api_router.post("/memory/observations/{observation_id}/review")
+def review_memory_observation(request: Request, observation_id: UUID, review: MemoryReviewRequest):
+    from memesis.knowledge.memory import observation_dict
+    try:
+        record = _get_repo(request).review_memory_assertion(observation_id, review.state, review.reviewer, review.note)
+        return observation_dict(record)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 class AskRequest(ScopeOptions):
@@ -349,6 +412,7 @@ def ask_market(request: Request, market_id: UUID, req: AskRequest) -> dict[str, 
             "exploratory_claims_preserved": True,
         },
         "claims": claims,
+        "memory_observations": packet.memory_observations,
         "observed_claims": observed_claims,
         "inferred_claims": inferred_claims,
         "speculative_claims": speculative_claims,

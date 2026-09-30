@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -30,6 +31,8 @@ from memesis.extraction.contracts import (
 from memesis.extraction.deterministic import DeterministicExtractor
 from memesis.extraction.resolution import EntityResolver
 from memesis.graph.repository import GraphRepository
+from memesis.knowledge.memory import ConnectedMarketMemory
+from memesis.extraction.meaning import attribution
 
 MAX_FALLBACK_CHARS = 6_000
 
@@ -46,6 +49,7 @@ class EvidenceGraphReport:
     ambiguous_items: int = 0
     llm_calls: int = 0
     strong_model_calls: int = 0
+    memory_observations_processed: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     failures: list[dict[str, str]] = field(default_factory=list)
@@ -65,6 +69,7 @@ class EvidenceGraphPipeline:
         self.repository = repository
         self.extractor = DeterministicExtractor()
         self.resolver = EntityResolver(repository)
+        self.memory = ConnectedMarketMemory(repository)
         self.cheap_model = cheap_model
         self.ambiguity_model = ambiguity_model
 
@@ -269,10 +274,11 @@ class EvidenceGraphPipeline:
                     )
                 )
                 spans[span_key] = span
-            accepted = (
-                result.extraction_method == ExtractionMethod.DETERMINISTIC
-                or relation.confidence >= 0.9
-            )
+            accepted = result.extraction_method == ExtractionMethod.DETERMINISTIC
+            if relation.edge_type in {EdgeType.INFLUENCES, EdgeType.POSSIBLY_INFLUENCED, EdgeType.ACTS_ON}:
+                accepted = False
+            if relation.edge_type == EdgeType.BELIEVES and attribution(exact) != "first_person":
+                accepted = False
             assertion = self.repository.add_assertion(
                 Assertion(
                     subject_id=source.id,
@@ -307,6 +313,7 @@ class EvidenceGraphPipeline:
                         "assertion_id": str(assertion.id),
                         "prompt_version": result.prompt_version,
                         "schema_version": result.schema_version,
+                        "source_family": self.memory.family(evidence)["id"],
                     },
                     valid_from=evidence.published_at,
                     recorded_at=datetime.now(UTC),
@@ -316,6 +323,9 @@ class EvidenceGraphPipeline:
             report.edges_written += 1
 
         self._extract_and_record_perceptions(evidence, normalized_text, resolved)
+        normalized = self.repository.get_normalized_document_for_version(evidence.document_version_id)
+        if normalized is not None:
+            report.memory_observations_processed += self.memory.process(evidence, normalized, resolved, result)
 
     def _extract_and_record_perceptions(
         self,
@@ -479,7 +489,10 @@ class EvidenceGraphPipeline:
             return 0 <= start < end <= len(text)
 
         entities = tuple(
-            entity
+            replace(entity, external_ids=tuple(
+                identifier for identifier in entity.external_ids
+                if identifier.value in text[entity.start:entity.end]
+            ))
             for entity in result.entities
             if entity.node_type.value != "Content"
             and len(entity.name) <= 500
@@ -511,6 +524,8 @@ class EvidenceGraphPipeline:
             for relationship in relationships
             for key in (relationship.from_key, relationship.to_key)
         }
+        used.update(observation.subject_key for observation in result.observations)
+        used.update(observation.context.get("target_key") for observation in result.observations)
         return ExtractionResult(
             entities=tuple(entity for entity in entities if entity.key in used),
             beliefs=tuple(belief for belief in beliefs if belief.key in used),
@@ -522,6 +537,13 @@ class EvidenceGraphPipeline:
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             ambiguous_spans=result.ambiguous_spans,
+            observations=tuple(
+                observation for observation in result.observations
+                if valid_offsets(observation.start, observation.end)
+                and observation.subject_key in keys
+                and observation.context.get("target_key", observation.subject_key) in keys
+                and (not observation.statement or observation.statement == text[observation.start:observation.end])
+            ),
         )
 
     def _with_current_metadata(
@@ -559,4 +581,5 @@ class EvidenceGraphPipeline:
             input_tokens=0,
             output_tokens=0,
             ambiguous_spans=cached.ambiguous_spans,
+            observations=cached.observations,
         )

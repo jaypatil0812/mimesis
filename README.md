@@ -260,6 +260,11 @@ Approved open-source dependency stack audited in [`docs/DEPENDENCY_AUDIT.md`](do
 
 ## Local backend integration
 
+Connected market memory is documented in [CONNECTED_MARKET_MEMORY.md](docs/CONNECTED_MARKET_MEMORY.md).
+It adds typed, source-backed observation candidates, reviewed identity and belief
+connections, source families, and transactional graph promotion/retraction. Review
+the queue through `/api/memory/observations`; a backfill is not proof of extraction quality.
+
 This checkout includes the Phase 9 collectors, perception intelligence and Jev integration,
 plus evidence citation auditing and market/date scoping. See
 [market and date scoping](docs/MARKET_SCOPING.md) for scope semantics and API examples.

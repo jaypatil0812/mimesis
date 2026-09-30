@@ -39,6 +39,8 @@ class EdgeType(StrEnum):
     AMPLIFIES = "AMPLIFIES"
     PARTICIPATED_IN = "PARTICIPATED_IN"
     PERCEIVES = "PERCEIVES"
+    SAME_ENTITY = "SAME_ENTITY"
+    EQUIVALENT_TO = "EQUIVALENT_TO"
 
 
 class ExtractionMethod(StrEnum):
@@ -416,6 +418,8 @@ class PerceptionObservation(BaseModel):
 # Endpoint rules from ONTOLOGY.md. INFLUENCES is intentionally permissive but
 # still constrained to the documented participant and proposition types.
 EDGE_ENDPOINTS: dict[EdgeType, set[tuple[NodeType, NodeType]]] = {
+    EdgeType.SAME_ENTITY: {(kind, kind) for kind in (NodeType.PERSON, NodeType.COMPANY, NodeType.PRODUCT, NodeType.MARKET)},
+    EdgeType.EQUIVALENT_TO: {(NodeType.BELIEF, NodeType.BELIEF)},
     EdgeType.BELIEVES: {(NodeType.PERSON, NodeType.BELIEF)},
     EdgeType.PUBLISHED: {
         (NodeType.PERSON, NodeType.CONTENT),

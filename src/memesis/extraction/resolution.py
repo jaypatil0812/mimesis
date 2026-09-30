@@ -20,6 +20,7 @@ from memesis.domain.schemas import (
 from memesis.extraction.contracts import BeliefProposal, EntityProposal
 from memesis.graph.repository import GraphRepository
 from memesis.knowledge.service import KnowledgeService
+from memesis.extraction.meaning import meaning
 
 _TITLE_WORDS = {"ceo", "cto", "founder", "cofounder", "chief", "president"}
 
@@ -30,9 +31,15 @@ def normalize_alias(value: str) -> str:
     return " ".join(word for word in words if word not in _TITLE_WORDS)
 
 
+def normalize_identifier(value: str) -> str:
+    # Identifiers are opaque: do not strip title words, punctuation, or case.
+    # Alias normalization is for names, not identity keys.
+    return unicodedata.normalize("NFKC", value).strip()
+
+
 def _belief_signature(proposal: BeliefProposal) -> str:
-    tokens = re.findall(r"[a-z0-9]+", proposal.proposition.casefold())
-    return "|".join((" ".join(tokens), proposal.scope, proposal.modality, proposal.horizon))
+    text = " ".join(unicodedata.normalize("NFKC", proposal.proposition).split())
+    return "memory-v1|" + "|".join((text, proposal.scope, proposal.modality, proposal.horizon))
 
 
 def _jaccard(left: str, right: str) -> float:
@@ -50,6 +57,23 @@ class EntityResolver:
         self.repository = repository
         self.knowledge = KnowledgeService(repository)
 
+    def _canonical_identity(self, node):
+        redirects = {
+            record.subject_id: UUID(record.object_value["target_id"])
+            for record in self.repository.list_memory_assertions(review_state="accepted")
+            if record.object_value.get("observation_type") == "identity_link"
+        }
+        visited = set()
+        while node.id in redirects:
+            if node.id in visited:
+                raise ValueError("reviewed identity cycle")
+            visited.add(node.id)
+            canonical = self.repository.get_node(redirects[node.id])
+            if canonical is None or canonical.node_type != node.node_type:
+                raise ValueError("reviewed canonical identity is unavailable")
+            node = canonical
+        return node
+
     def resolve_entity(
         self,
         proposal: EntityProposal,
@@ -60,10 +84,13 @@ class EntityResolver:
     ) -> CanonicalNode:
         matches: dict[UUID, CanonicalNode] = {}
         for identifier in proposal.external_ids:
-            existing = self.repository.find_node_by_external_identifier(
-                identifier.identifier_type, normalize_alias(identifier.value)
-            )
+            existing = self.repository.find_node_by_identifier_value(identifier.identifier_type, identifier.value)
+            existing = existing or self.repository.find_node_by_external_identifier(
+                identifier.identifier_type, normalize_identifier(identifier.value))
             if existing:
+                if existing.node_type != proposal.node_type:
+                    raise ValueError("stable identifier conflicts with the proposed entity type")
+                existing = self._canonical_identity(existing)
                 matches[existing.id] = existing
         if len(matches) > 1:
             # Conflicting stable identifiers are never silently reconciled.
@@ -103,16 +130,17 @@ class EntityResolver:
         candidates = [
             node for node in self.repository.list_nodes() if node.node_type == NodeType.BELIEF
         ]
-        for candidate in candidates:
-            attrs = candidate.attributes
-            if (
-                attrs.get("scope") == proposal.scope
-                and attrs.get("modality") == proposal.modality
-                and attrs.get("horizon") == proposal.horizon
-                and _jaccard(candidate.name, proposal.proposition) >= 0.92
-            ):
-                self._add_alias(candidate, proposal.proposition, evidence, proposal.confidence)
-                return candidate
+        # Similarity proposes a connection; it cannot establish semantic identity.
+        # Exact versioned signatures above are the only automatic belief merge.
+        possible_equivalents = [
+            str(candidate.id) for candidate in candidates
+            if candidate.name != proposal.proposition
+            and _jaccard(candidate.name, proposal.proposition) >= 0.5
+            and candidate.attributes.get("scope") == proposal.scope
+            and candidate.attributes.get("modality") == proposal.modality
+            and candidate.attributes.get("horizon") == proposal.horizon
+            and meaning(candidate.name) == meaning(proposal.proposition)
+        ]
         entity = EntityProposal(
             key=proposal.key,
             node_type=NodeType.BELIEF,
@@ -127,6 +155,9 @@ class EntityResolver:
                 "modality": proposal.modality,
                 "horizon": proposal.horizon,
                 "resolution_state": "resolved",
+                "meaning": meaning(proposal.proposition),
+                "possible_equivalent_ids": possible_equivalents,
+                "equivalence_review_state": "proposed" if possible_equivalents else "none",
             },
         )
         node = self._new_entity(
@@ -211,12 +242,17 @@ class EntityResolver:
             if alias:
                 self._add_alias(node, alias, evidence, proposal.confidence)
         for identifier in proposal.external_ids:
+            existing = self.repository.find_node_by_identifier_value(identifier.identifier_type, identifier.value)
+            if existing and existing.id == node.id:
+                continue
+            if existing and existing.id != node.id and self._canonical_identity(existing).id == node.id:
+                continue  # Preserve original identifier ownership and reviewed redirect.
             self.repository.add_external_identifier(
                 EntityExternalIdentifier(
                     node_id=node.id,
                     identifier_type=identifier.identifier_type,
                     value=identifier.value,
-                    normalized_value=normalize_alias(identifier.value),
+                    normalized_value=normalize_identifier(identifier.value),
                     confidence=proposal.confidence,
                     evidence_ids=(evidence.id,),
                     created_at=datetime.now(UTC),

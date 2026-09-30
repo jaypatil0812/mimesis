@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from memesis.domain.schemas import EdgeType, ExtractionMethod, NodeType
 
 SCHEMA_VERSION = "phase3-v1"
-DETERMINISTIC_VERSION = "deterministic-phase3-v2"
+DETERMINISTIC_VERSION = "deterministic-phase3-v3"
 EXTRACT_PROMPT_VERSION = "evidence-graph-extract-v1"
 
 
@@ -56,6 +56,18 @@ class RelationshipProposal:
 
 
 @dataclass(frozen=True)
+class ObservationProposal:
+    observation_type: str
+    start: int
+    end: int
+    subject_key: str = "content"
+    statement: str = ""
+    attribution: str = "unattributed"
+    context: dict[str, Any] = field(default_factory=dict)
+    confidence: float = 0.5
+
+
+@dataclass(frozen=True)
 class ExtractionResult:
     entities: tuple[EntityProposal, ...] = ()
     beliefs: tuple[BeliefProposal, ...] = ()
@@ -67,6 +79,7 @@ class ExtractionResult:
     input_tokens: int = 0
     output_tokens: int = 0
     ambiguous_spans: tuple[tuple[int, int], ...] = ()
+    observations: tuple[ObservationProposal, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -115,6 +128,7 @@ class ExtractionResult:
             ambiguous_spans=tuple(
                 (int(item[0]), int(item[1])) for item in value.get("ambiguous_spans", ())
             ),
+            observations=tuple(ObservationProposal(**item) for item in value.get("observations", ())),
         )
 
 

@@ -275,6 +275,20 @@ class ScopedGraphRepository:
         # Global cached scores have no market boundary and must be recomputed in this view.
         return []
 
+    def memory_observations(self, evidence_ids=None):
+        from memesis.knowledge.memory import observation_dict
+        allowed = set(self._evidence_by_id) if evidence_ids is None else set(evidence_ids) & set(self._evidence_by_id)
+        observations = []
+        for record in self._repository.list_memory_assertions():
+            if record.review_state in {"rejected", "superseded"}:
+                continue
+            if not set(record.provenance.evidence_ids) <= allowed:
+                continue
+            if self.scope.time_basis == "known_at" and utc(record.recorded_at) > self.scope.as_of:
+                continue
+            observations.append(observation_dict(record))
+        return observations
+
     def get_assertion(self, assertion_id: UUID):
         assertion = self._repository.get_assertion(assertion_id)
         if assertion is not None and set(assertion.provenance.evidence_ids) <= self._evidence_by_id.keys():

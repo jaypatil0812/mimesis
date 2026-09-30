@@ -106,6 +106,7 @@ class MemesisReasoningEngine:
                     "retained_evidence": len(all_evidence),
                 },
                 evidence_membership=view.evidence_membership,
+                memory_observations=view.memory_observations(),
             )
             motion = self.motion_analyzer.analyze(subgraph, scores, as_of)
             analogues = self.analogue_engine.find_analogues(question, subgraph)

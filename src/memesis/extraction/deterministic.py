@@ -14,6 +14,7 @@ from memesis.extraction.contracts import (
     ExtractionResult,
     RelationshipProposal,
 )
+from memesis.extraction.meaning import attribution
 
 _BOILERPLATE = re.compile(
     r"\b(cookie policy|accept cookies|privacy policy|terms of use|sign up|subscribe|read more)\b",
@@ -65,7 +66,7 @@ def _entity_key(prefix: str, value: str) -> str:
 
 
 class DeterministicExtractor:
-    version = "deterministic-phase3-v2"
+    version = "deterministic-phase3-v3"
 
     def extract(self, evidence: Evidence) -> ExtractionResult:
         text = evidence.normalized_text or evidence.raw_text
@@ -244,7 +245,7 @@ class DeterministicExtractor:
                     {"stance": stance, "modality": modality},
                 )
             )
-            if author_key and _FIRST_PERSON.search(sentence):
+            if author_key and _FIRST_PERSON.search(sentence) and attribution(sentence) == "first_person":
                 relationships.append(
                     RelationshipProposal(
                         EdgeType.BELIEVES,

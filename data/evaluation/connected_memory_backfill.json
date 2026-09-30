@@ -1,0 +1,11 @@
+{
+  "observations_processed": 7395,
+  "evidence_skipped": 4,
+  "edges_family_annotated": 0,
+  "nonclaim_candidates_superseded": 0,
+  "substantive_candidates_restored": 4,
+  "note": "Candidates only; no semantic graph connections auto-approved.",
+  "observations_before": 7735,
+  "observations_after": 7735,
+  "observations_added": 0
+}

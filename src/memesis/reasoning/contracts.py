@@ -64,6 +64,7 @@ class IntelligencePacket(BaseModel):
     customer_public_perception: list[dict[str, Any]] = Field(default_factory=list)
     competitor_actions: list[dict[str, Any]] = Field(default_factory=list)
     market_relationships: list[dict[str, Any]] = Field(default_factory=list)
+    memory_observations: list[dict[str, Any]] = Field(default_factory=list)
     memesis_scores: list[dict[str, Any]] = Field(default_factory=list)
     recent_changes: list[dict[str, Any]] = Field(default_factory=list)
     historical_analogues: list[HistoricalAnalogue] = Field(default_factory=list)

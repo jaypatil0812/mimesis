@@ -72,7 +72,7 @@ class OpenAICompatibleStructuredExtractor:
     @staticmethod
     def _instructions() -> str:
         return """You extract only explicit evidence from supplied spans.
-Return one JSON object with arrays: entities, beliefs, relationships, ambiguous_spans.
+Return one JSON object with arrays: entities, beliefs, relationships, observations, ambiguous_spans.
 Use only these node types: Person, Company, Market, Product, Event.
 Do not return Content; it is deterministic. A belief must be a contestable proposition,
 not a topic. Copy belief proposition text exactly from one supplied span. Every entity,
@@ -81,4 +81,17 @@ Relationships use edge_type, from_key, to_key, start, end, confidence, qualifier
 Valid edges are BELIEVES, PUBLISHED, EXPRESSES, INFLUENCES, FOUNDED, WORKS_AT,
 INVESTED_IN, ACTS_ON, BUILDS, SERVES, ADJACENT_TO, DEPENDS_ON, PRECEDES, AMPLIFIES,
 PARTICIPATED_IN. Never infer identity from similar names. Put unresolved spans in
-ambiguous_spans. Return no prose and do not invent facts or identifiers."""
+ambiguous_spans. Return no prose and do not invent facts or identifiers.
+Preserve negation, conditions, workload scope, and time horizons. Quoting another
+speaker does not establish the author's own belief. BELIEVES requires explicit
+unquoted endorsement. Company marketing statements do not prove customer experience.
+Observations have observation_type, subject_key, start, end, statement, attribution,
+context, confidence. Allowed observation types: attributed_claim, company_statement,
+company_action, customer_experience, relationship, interpretation, identity_link,
+belief_equivalence. statement must be an exact source span; interpretations are
+proposals about the span, with the hypothesis in context, never invented quotations.
+Relationships/identity links/equivalence require context.target_key referring to an
+entity key. A relationship also requires context.edge_type and optional qualifiers.
+Record explicit use cases, conditions, and action completion/planning in context.
+Identity links require explicit corroborating profile links or identifiers in the
+source; similar names are insufficient. Keep unresolved connections as candidates."""

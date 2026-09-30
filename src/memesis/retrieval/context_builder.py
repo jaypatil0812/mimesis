@@ -30,6 +30,7 @@ class MinimumSufficientSubgraph(BaseModel):
     query_scope: dict[str, Any] = Field(default_factory=dict)
     coverage: dict[str, Any] = Field(default_factory=dict)
     evidence_membership: dict[str, str] = Field(default_factory=dict)
+    memory_observations: list[dict[str, Any]] = Field(default_factory=list)
 
     def node_ids(self) -> set[UUID]:
         return {node.id for node in self.nodes}
@@ -228,4 +229,5 @@ class ContextBuilder:
                 "retrieval_limits_applied": limits_applied,
             },
             evidence_membership=view.evidence_membership,
+            memory_observations=view.memory_observations({ev.id for ev in retained_evidence_objs}),
         )

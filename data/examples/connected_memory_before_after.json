@@ -1,0 +1,124 @@
+{
+  "synthetic_examples_only": true,
+  "baseline_commit": "41386f1",
+  "negation": [
+    {
+      "version": "before",
+      "opposite_claims_merged": true
+    },
+    {
+      "version": "after",
+      "opposite_claims_merged": false
+    }
+  ],
+  "quoted_author_belief_edges": {
+    "before": 1,
+    "after": 0
+  },
+  "opaque_identifiers": [
+    {
+      "version": "before",
+      "different_identifiers_merged": true
+    },
+    {
+      "version": "after",
+      "different_identifiers_merged": false
+    }
+  ],
+  "distinct_observations": [
+    {
+      "type": "company_statement",
+      "state": "proposed",
+      "epistemic_status": "reported"
+    },
+    {
+      "type": "company_action",
+      "state": "proposed",
+      "epistemic_status": "reported"
+    },
+    {
+      "type": "customer_experience",
+      "state": "proposed",
+      "epistemic_status": "reported"
+    },
+    {
+      "type": "interpretation",
+      "state": "proposed",
+      "epistemic_status": "inferred"
+    }
+  ],
+  "source_family": {
+    "before": "different publisher hosts",
+    "after_same_family": true
+  },
+  "market_connection": {
+    "candidate_edges": 0,
+    "approved_edges": 1,
+    "retracted_edges": 0,
+    "reviewed_record": {
+      "id": "cfbc8725-16a7-515d-b03f-60859a813f14",
+      "subject_id": "4ff04324-af6a-4444-a6e8-a4cb661a2368",
+      "memory_version": "connected-memory-v1",
+      "observation_type": "relationship",
+      "statement": "AcmeCool serves the regional cold-chain market for refrigerated warehouses.",
+      "attribution": "unattributed",
+      "meaning": {
+        "negated": false,
+        "conditions": [],
+        "time_expressions": [],
+        "qualified": false
+      },
+      "contains_quotation": false,
+      "target_id": "4a875702-0a3f-4909-a296-34b684aa5314",
+      "context": {
+        "edge_type": "SERVES",
+        "qualifiers": {
+          "use_case": "refrigerated warehouses"
+        }
+      },
+      "source_family": {
+        "id": "text:e482997624e9196f540a05655fa5fb7f3cb94b8992fc213e9bc30435bf34ebb9",
+        "basis": "exact_normalized_content",
+        "origin": "https://acme.example/product"
+      },
+      "confidence_semantics": "extractor score, not calibrated truth probability",
+      "epistemic_status": "reported",
+      "projected_edge_id": "b03bbfe3-aa85-5f40-a69f-cace8c6fb54d",
+      "reviews": [
+        {
+          "state": "accepted",
+          "reviewer": "demo reviewer",
+          "note": "The supplied synthetic source explicitly names the product, market and use case.",
+          "reviewed_at": "2026-09-30T12:15:13.143925+00:00"
+        }
+      ],
+      "review_state": "accepted",
+      "evidence_ids": [
+        "6f6752ff-254a-4382-b4d6-cb02566c8fad"
+      ],
+      "evidence_span_ids": [
+        "6d96bfb5-facd-5b6e-9cd2-b21502649eef"
+      ],
+      "source_url": "https://acme.example/product",
+      "published_at": "2026-09-29T00:00:00",
+      "recorded_at": "2026-09-30T12:15:13.143938+00:00",
+      "extraction_method": "deterministic",
+      "extraction_model": null
+    }
+  },
+  "claim_conditions": {
+    "negated": false,
+    "conditions": [
+      "only for classification workloads within 12 months"
+    ],
+    "time_expressions": [
+      "within 12 months"
+    ],
+    "qualified": true
+  },
+  "identity": {
+    "name_only_merge": false,
+    "reviewed_link_used_for_future_resolution": true
+  },
+  "idempotent_repeated_observation": true
+}

@@ -127,7 +127,9 @@ def test_pipeline_projects_spans_assertions_edges_and_caches(repository):
         EdgeType.EXPRESSES,
     }
     with repository._sessions() as session:
-        assert session.query(EvidenceSpanRow).count() == 2
+        legacy = session.query(AssertionRow).filter(AssertionRow.predicate != "MEMORY_OBSERVATION").all()
+        assert len({span for row in legacy for span in row.evidence_span_ids}) == 2
+        assert session.query(AssertionRow).filter_by(predicate="MEMORY_OBSERVATION", review_state="proposed").count() > 0
         assert session.query(AssertionRow).filter_by(review_state="accepted").count() == 2
     before = repository.storage_metrics()
     second = asyncio.run(EvidenceGraphPipeline(repository).run())
@@ -223,10 +225,11 @@ def test_cheap_model_fallback_records_model_prompt_tokens_and_evidence(repositor
     assert report.llm_calls == 1
     assert (report.input_tokens, report.output_tokens) == (20, 8)
     with repository._sessions() as session:
-        row = session.query(AssertionRow).filter_by(extraction_method="extracted").one()
+        row = session.query(AssertionRow).filter_by(extraction_method="extracted").filter(AssertionRow.predicate != "MEMORY_OBSERVATION").one()
         assert row.extraction_model == "cheap-structured-test"
         assert row.prompt_version == "evidence-graph-extract-v1"
         assert row.evidence_span_ids
+        assert row.review_state == "proposed"
 
 
 class HallucinatingModel(CheapFixtureModel):

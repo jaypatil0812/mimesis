@@ -1067,6 +1067,8 @@ class DeterministicScoringService:
 
     @staticmethod
     def _source_family(edge: GraphEdge) -> str:
+        if edge.qualifiers.get("source_family"):
+            return str(edge.qualifiers["source_family"])
         host = urlparse(str(edge.provenance.source_url)).hostname or "unknown-host"
         return f"{edge.provenance.source_type}:{host.lower()}"
 

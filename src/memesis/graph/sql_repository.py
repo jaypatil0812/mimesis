@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -671,6 +671,19 @@ class SqlGraphRepository:
             row = session.get(GraphNodeRow, identifier.node_id)
             return self._node_from_row(row) if row and row.active else None
 
+    def find_node_by_identifier_value(self, identifier_type: str, value: str) -> CanonicalNode | None:
+        """Exact lookup also reads legacy identifier rows without lossy normalization."""
+        with self._sessions() as session:
+            rows = session.scalars(select(EntityExternalIdentifierRow).where(
+                EntityExternalIdentifierRow.identifier_type == identifier_type,
+                EntityExternalIdentifierRow.value == value,
+            )).all()
+            owners = {row.node_id for row in rows}
+            if len(owners) > 1:
+                raise ValueError("stable identifier has conflicting owners")
+            row = session.get(GraphNodeRow, next(iter(owners))) if owners else None
+            return self._node_from_row(row) if row and row.active else None
+
     def find_nodes_by_alias(
         self, normalized_alias: str, node_type: str | None = None
     ) -> list[CanonicalNode]:
@@ -890,6 +903,114 @@ class SqlGraphRepository:
             if subject_id is not None:
                 statement = statement.where(AssertionRow.subject_id == str(subject_id))
             return [self._assertion_from_row(row) for row in session.scalars(statement).all()]
+
+    def list_memory_assertions(self, review_state: str | None = None) -> list[Assertion]:
+        with self._sessions() as session:
+            statement = select(AssertionRow).where(AssertionRow.predicate == "MEMORY_OBSERVATION")
+            if review_state is not None:
+                statement = statement.where(AssertionRow.review_state == review_state)
+            return [self._assertion_from_row(row) for row in session.scalars(statement.order_by(AssertionRow.id)).all()]
+
+    def review_memory_assertion(self, assertion_id: UUID, state: str, reviewer: str, note: str) -> Assertion:
+        """Review and graph promotion/retraction are one transaction."""
+        if state not in {"accepted", "rejected", "proposed", "superseded"}:
+            raise ValueError("invalid review state")
+        if not reviewer.strip() or not note.strip():
+            raise ValueError("reviewer and supporting review note are required")
+        with self._sessions.begin() as session:
+            row = session.get(AssertionRow, str(assertion_id))
+            if row is None or row.predicate != "MEMORY_OBSERVATION":
+                raise ValueError("unknown memory observation")
+            payload = dict(row.object_value)
+            context = dict(payload.get("context", {}))
+            kind = payload["observation_type"]
+            edge_id = str(payload.get("projected_edge_id") or uuid5(assertion_id, "reviewed-memory-edge"))
+            edge = session.get(GraphEdgeRow, edge_id)
+            if state == "accepted" and kind in {"relationship", "identity_link", "belief_equivalence"}:
+                source = session.get(GraphNodeRow, row.subject_id)
+                target = session.get(GraphNodeRow, str(payload.get("target_id")))
+                if not source or not target or not source.active or not target.active:
+                    raise ValueError("connection endpoints must exist and be active")
+                edge_type = (EdgeType.SAME_ENTITY if kind == "identity_link" else
+                             EdgeType.EQUIVALENT_TO if kind == "belief_equivalence" else EdgeType(context.get("edge_type")))
+                validate_edge_endpoints(edge_type, NodeType(source.node_type), NodeType(target.node_type))
+                provenance = Provenance.model_validate(row.provenance)
+                if not {UUID(source.id), UUID(target.id)} <= set(provenance.entity_ids):
+                    raise ValueError("connection evidence must include both endpoints")
+                if edge is None:
+                    # Reuse a pre-existing projection of this same source relation;
+                    # human review must not double-count one observation.
+                    for candidate in session.scalars(select(GraphEdgeRow).where(
+                        GraphEdgeRow.edge_type == edge_type.value,
+                        GraphEdgeRow.from_node_id == source.id,
+                        GraphEdgeRow.to_node_id == target.id,
+                    )):
+                        proposed_qualifiers = dict(context.get("qualifiers", {}))
+                        same_meaning = all(candidate.qualifiers.get(key) == proposed_qualifiers.get(key)
+                                           for key in ("stance", "modality", "use_case"))
+                        if same_meaning and set(candidate.provenance.get("evidence_ids", [])) == set(row.provenance.get("evidence_ids", [])):
+                            owner = candidate.qualifiers.get("memory_assertion_id")
+                            if owner and owner != row.id:
+                                raise ValueError("this connection already has a memory review; review its owning observation")
+                            edge = candidate
+                            break
+                # Promotion is explicit human review, never model confidence alone.
+                if edge is None:
+                    provenance_json = provenance.model_dump(mode="json")
+                    edge = GraphEdgeRow(
+                        id=edge_id, edge_type=edge_type.value, from_node_id=source.id, to_node_id=target.id,
+                        qualifiers={**dict(context.get("qualifiers", {})), "memory_assertion_id": row.id,
+                                    "source_family": payload["source_family"]["id"], "reviewed_by": reviewer},
+                        valid_from=provenance.published_at, recorded_at=datetime.now(UTC),
+                        provenance=provenance_json,
+                        provenance_key=hashlib.sha256((json.dumps(provenance_json, sort_keys=True) + row.id).encode()).hexdigest(),
+                        active=True,
+                    )
+                    session.add(edge)
+                else:
+                    edge.active = True
+                    edge.recorded_at = datetime.now(UTC)
+                    edge.qualifiers = {**edge.qualifiers, "memory_assertion_id": row.id, "reviewed_by": reviewer}
+                payload["projected_edge_id"] = edge.id
+            elif edge is not None:
+                edge.active = False
+            if edge is not None and edge.qualifiers.get("assertion_id"):
+                projection = session.get(AssertionRow, str(edge.qualifiers["assertion_id"]))
+                if projection is not None:
+                    projection.review_state = state
+                    projection.recorded_at = datetime.now(UTC)
+            if state == "accepted" and kind in {"identity_link", "belief_equivalence"}:
+                source = session.get(GraphNodeRow, row.subject_id)
+                target = session.get(GraphNodeRow, str(payload.get("target_id")))
+                if not source or not target or source.node_type != target.node_type or source.id == target.id:
+                    raise ValueError("identity/equivalence needs distinct nodes of the same type")
+                if kind == "belief_equivalence" and source.node_type != NodeType.BELIEF.value:
+                    raise ValueError("belief equivalence requires two beliefs")
+                if kind == "identity_link":
+                    # Detect cycles before approving a redirect for future resolution.
+                    redirects = {a.subject_id: str(a.object_value.get("target_id")) for a in session.scalars(
+                        select(AssertionRow).where(AssertionRow.predicate == "MEMORY_OBSERVATION", AssertionRow.review_state == "accepted")
+                    ) if a.object_value.get("observation_type") == "identity_link" and a.id != row.id}
+                    if source.id in redirects and redirects[source.id] != target.id:
+                        raise ValueError("identity already has a different reviewed canonical target")
+                    cursor = target.id
+                    visited = {source.id}
+                    while cursor in redirects:
+                        if cursor in visited:
+                            raise ValueError("identity link would create a cycle")
+                        visited.add(cursor)
+                        cursor = redirects[cursor]
+                    if cursor in visited:
+                        raise ValueError("identity link would create a cycle")
+            history = list(payload.get("reviews", []))
+            history.append({"state": state, "reviewer": reviewer, "note": note,
+                            "reviewed_at": datetime.now(UTC).isoformat()})
+            payload["reviews"] = history
+            row.object_value = payload
+            row.review_state = state
+            row.recorded_at = datetime.now(UTC)
+            session.flush()
+            return self._assertion_from_row(row)
 
     def add_merge_decision(self, decision: MergeDecision) -> MergeDecision:
         with self._sessions.begin() as session:
