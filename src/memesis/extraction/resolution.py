@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import json
 import unicodedata
 from datetime import UTC, datetime
 from uuid import UUID
@@ -39,7 +41,13 @@ def normalize_identifier(value: str) -> str:
 
 def _belief_signature(proposal: BeliefProposal) -> str:
     text = " ".join(unicodedata.normalize("NFKC", proposal.proposition).split())
-    return "memory-v1|" + "|".join((text, proposal.scope, proposal.modality, proposal.horizon))
+    fields = (text, proposal.scope, proposal.modality, proposal.horizon)
+    signature = "memory-v1|" + "|".join(fields)
+    # Keep existing short identities compatible. Oversized identities use the
+    # complete structured meaning; the statement and conditions remain stored.
+    if len(signature) > 500:
+        return "memory-v1-sha256|" + hashlib.sha256(json.dumps(fields, ensure_ascii=False).encode()).hexdigest()
+    return signature
 
 
 def _jaccard(left: str, right: str) -> float:

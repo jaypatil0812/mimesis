@@ -6,6 +6,7 @@ from hashlib import sha256
 from uuid import uuid4
 from types import SimpleNamespace
 from memesis.extraction.pipeline import EvidenceGraphPipeline
+from memesis.extraction.resolution import _belief_signature
 from memesis.domain.schemas import Evidence
 from memesis.extraction.deterministic import DeterministicExtractor
 from memesis.ingestion.http import HttpResult
@@ -86,3 +87,13 @@ def test_synchronous_extraction_batches_yield_for_heartbeat():
         assert report.evidence_processed == len(records)
         await task
     asyncio.run(run())
+
+
+def test_long_belief_identifiers_preserve_scope_without_truncation():
+    proposal = SimpleNamespace(proposition="A long qualified claim " * 40, scope="workload A",
+        modality="conditional", horizon="current")
+    first = _belief_signature(proposal)
+    assert len(first) <= 500 and first.startswith("memory-v1-sha256|")
+    assert first == _belief_signature(proposal)
+    proposal.scope = "workload B"
+    assert first != _belief_signature(proposal)
