@@ -4,8 +4,10 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 from memesis.config import settings
-from memesis.extraction.pipeline import EvidenceGraphPipeline
+from memesis.extraction.pipeline import EvidenceGraphReport
+from memesis.extraction.rebuild import rebuild_evidence
 from memesis.extraction.model import OpenAICompatibleStructuredExtractor
+from memesis.extraction.contracts import EXTRACT_PROMPT_VERSION, AMBIGUITY_PROMPT_VERSION, DETERMINISTIC_VERSION
 from memesis.ingestion.http import ResilientHttpClient
 from memesis.ingestion.service import IngestionService, IngestionReport
 from memesis.investigations.contracts import InvestigationConfig
@@ -41,8 +43,8 @@ class InvestigationWorker:
             return OpenAICompatibleStructuredExtractor(base_url=settings.model_api_base_url,
                 api_key=settings.model_api_key, model_name=name, prompt_version=prompt,
                 timeout_seconds=settings.ingestion_request_timeout_seconds) if name and settings.model_api_key else None
-        return (configured(settings.extract_small_model, "evidence-graph-extract-v1"),
-                configured(settings.resolve_small_model, "evidence-graph-ambiguity-v1"))
+        return (configured(settings.extract_small_model, EXTRACT_PROMPT_VERSION),
+                configured(settings.resolve_small_model, AMBIGUITY_PROMPT_VERSION))
 
     async def heartbeat(self):
         while True:
@@ -130,12 +132,27 @@ class InvestigationWorker:
                         "coverage_notes": report["coverage_notes"],
                         "retry_at": (datetime.now(UTC) + timedelta(seconds=min(30 * 2 ** min(attempts, 5), config.interval_seconds))).isoformat() if attempts else None}
                     receipt["failures"].extend(report["failures"])
+            if state.get("extractor_version") != DETERMINISTIC_VERSION:
+                pending = list(dict.fromkeys(pending + tracked))
+                state["extractor_version"] = DETERMINISTIC_VERSION
             processing_ids = list(dict.fromkeys(pending))[:config.max_evidence_per_tick]
             cheap, resolver = self.extraction_models()
-            pipeline = EvidenceGraphPipeline(self.repository, interpretation_version=config.processing_version,
-                                             cheap_model=cheap, ambiguity_model=resolver)
             receipt["processing_models"] = [m.model_name for m in (cheap, resolver) if m is not None]
-            processed = await pipeline.run(evidence_ids=[UUID(eid) for eid in processing_ids])
+            def fence(atomic):
+                with atomic.session_factory() as session:
+                    self.store.fenced(session, self.owner)
+            rebuilt = await rebuild_evidence(self.repository, [UUID(eid) for eid in processing_ids],
+                interpretation_version=config.processing_version, cheap_model=cheap,
+                ambiguity_model=resolver, fence_record=fence)
+            receipt["memory_rebuild"] = rebuilt
+            processed = EvidenceGraphReport()
+            for item in rebuilt["records"]:
+                if item["status"] == "failed":
+                    processed.failures.append({"evidence_id": item["evidence_id"], "error": item["error"]})
+                else:
+                    for key, value in item.get("processing", {}).items():
+                        if key != "failures":
+                            setattr(processed, key, getattr(processed, key) + value)
             failed_ids = {f["evidence_id"] for f in processed.failures}
             dead = dict(state.get("dead_letters", {}))
             attempts = dict(state.get("extraction_attempts", {}))

@@ -28,6 +28,7 @@ from memesis.domain.schemas import (
 )
 from memesis.extraction.evaluation import evaluate_phase3_sync
 from memesis.extraction.model import OpenAICompatibleStructuredExtractor
+from memesis.extraction.contracts import EXTRACT_PROMPT_VERSION, AMBIGUITY_PROMPT_VERSION
 from memesis.extraction.pipeline import EvidenceGraphPipeline
 from memesis.graph.sql_repository import SqlGraphRepository
 from memesis.ingestion.http import ResilientHttpClient
@@ -123,7 +124,7 @@ def _configured_extraction_models():
             base_url=settings.model_api_base_url,
             api_key=settings.model_api_key,
             model_name=settings.extract_small_model,
-            prompt_version="evidence-graph-extract-v1",
+            prompt_version=EXTRACT_PROMPT_VERSION,
             timeout_seconds=settings.ingestion_request_timeout_seconds,
         )
         if settings.extract_small_model
@@ -134,7 +135,7 @@ def _configured_extraction_models():
             base_url=settings.model_api_base_url,
             api_key=settings.model_api_key,
             model_name=settings.reason_strong_model,
-            prompt_version="evidence-graph-ambiguity-v1",
+            prompt_version=AMBIGUITY_PROMPT_VERSION,
             timeout_seconds=settings.ingestion_request_timeout_seconds,
         )
         if settings.reason_strong_model
@@ -302,6 +303,12 @@ def _parser() -> argparse.ArgumentParser:
 
     eval5 = commands.add_parser("evaluate-phase5", help="evaluate Phase 5 reasoning engine across 10 queries")
     eval5.add_argument("--output", default="data/evaluation/phase5_report.json", help="path to save evaluation report")
+    rebuild = commands.add_parser("rebuild-memory", help="atomic versioned re-extraction from preserved evidence")
+    rebuild.add_argument("--evidence-id", type=UUID, action="append")
+    rebuild.add_argument("--limit", type=int, default=100)
+    rebuild.add_argument("--version", default="memory-worker-v1")
+    rebuild.add_argument("--with-models", action="store_true", help="allow configured extraction provider calls")
+    rebuild.add_argument("--output", type=Path, required=True)
     quality = commands.add_parser("quality-run", help="isolated intelligence diagnostics and a human review template")
     quality.add_argument("--dataset", type=Path, default=REPO_ROOT / "data/evaluation/intelligence_quality_v1.json")
     quality.add_argument("--output-dir", type=Path, required=True)
@@ -324,6 +331,43 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     configure_logging(settings.log_level)
     args = _parser().parse_args()
+    if args.command == "rebuild-memory":
+        from uuid import uuid4
+        from memesis.extraction.rebuild import rebuild_evidence
+        from memesis.investigations.store import InvestigationStore
+        if args.limit < 1:
+            raise SystemExit("Rebuild limit must be positive")
+        if args.output.exists():
+            raise SystemExit("Rebuild receipt already exists; choose a new output path")
+        repository = _repository(args.database_url)
+        store = InvestigationStore(repository.session_factory)
+        owner = str(uuid4())
+        if not store.acquire(owner):
+            raise SystemExit("Collection worker is active; stop it and let its current lease expire before rebuilding")
+        try:
+            def renew():
+                if not store.renew(owner):
+                    raise RuntimeError("Rebuild lease lost")
+            def fence(atomic):
+                with atomic.session_factory() as session:
+                    store.fenced(session, owner)
+            ids = args.evidence_id or [e.id for e in repository.list_evidence()]
+            ids = ids[:args.limit]
+            cheap, strong = _configured_extraction_models() if args.with_models else (None, None)
+            if args.with_models and cheap is None:
+                raise SystemExit("Configure an extraction model and provider key before using --with-models")
+            report = asyncio.run(rebuild_evidence(repository, ids, interpretation_version=args.version,
+                cheap_model=cheap, ambiguity_model=strong, before_record=renew, fence_record=fence))
+            changed = [r["evidence_id"] for r in report["records"] if r["status"] == "rebuilt"]
+            report["investigations_queued"] = store.invalidate_evidence(changed, report["id"])
+            report["model_calls_enabled"] = args.with_models
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open("x", encoding="utf-8") as stream:
+                json.dump(report, stream, indent=2, default=str)
+            _print({"counts": report["counts"], "investigations_queued": report["investigations_queued"], "receipt": str(args.output)})
+        finally:
+            store.release(owner)
+        return
     if args.command.startswith("quality-"):
         from memesis.quality.service import run_suite, review_template, review_guide, score_reviews, write_new, sample_live, export_live_investigations, investigate_live_question, compare_provider_traces
         if args.command == "quality-run":

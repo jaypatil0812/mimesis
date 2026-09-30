@@ -50,16 +50,34 @@ def observation_candidates(text: str, author_type: NodeType | None = None):
         mode = attribution(statement)
         if re.search(r"\b(I|we|my|our)\b.*\b(used|paid|switched|experienced|bill|latency|cost)", statement, re.I) and mode == "first_person":
             kind = "customer_experience"
-        elif re.search(r"\b(launched|released|introduced|changed|raised|reduced|hired|acquired)\b", statement, re.I):
+        elif author_type == NodeType.COMPANY and re.search(r"\b(launched|released|introduced|changed|raised|reduced|hired|acquired)\b", statement, re.I):
             kind = "company_action"
         elif author_type == NodeType.COMPANY:
             kind = "company_statement"
         else:
             kind = "attributed_claim"
-        yield ObservationProposal(kind, start, start + len(statement), statement=statement,
-                                  attribution=mode, confidence=0.5,
-                                  context={"classification_basis": "rule_candidate",
-                                           "requires_semantic_review": True})
+        context = {"classification_basis": "rule_candidate", "requires_semantic_review": True,
+                   "source_statement": statement, "source_start": start,
+                   "source_end": start + len(statement)}
+        # Split explicit contrast clauses with a verb; an omitted subject is
+        # retained as source ellipsis, never rewritten into an invented quote.
+        # Shared qualifications stay attached through the complete source span.
+        # Quotation and criticism are left intact for semantic interpretation.
+        contrasts = list(re.finditer(r"\s+(?:but|whereas)\s+", statement, re.I))
+        parts = [(0, len(statement))]
+        if len(contrasts) == 1 and mode not in {"reported_or_quoted", "criticism"}:
+            boundary = contrasts[0]
+            right = statement[boundary.end():]
+            verb = re.search(r"\b(?:did|does|do|was|were|is|are|has|have|had|"
+                             r"declined|increased|decreased|reduced|grew|fell|failed|remained)\b", right, re.I)
+            if verb and (len(right[:verb.start()].split()) >= 1 or verb.start() == 0):
+                parts = [(0, boundary.start()), (boundary.end(), len(statement))]
+                context["shared_scope_requires_review"] = True
+                context["subject_ellipsis"] = verb.start() == 0
+        for left, right in parts:
+            yield ObservationProposal(kind, start + left, start + right,
+                                      statement=statement[left:right], attribution=mode,
+                                      confidence=0.5, context=dict(context))
 
 
 def statement_candidate(statement: str) -> bool:
@@ -76,7 +94,9 @@ class ConnectedMarketMemory:
 
     def __init__(self, repository):
         self.repository = repository
-        self._markets = {node.id: node for node in repository.list_nodes() if node.node_type == NodeType.MARKET}
+        markets = (repository.list_nodes_by_type(NodeType.MARKET) if hasattr(repository, "list_nodes_by_type")
+                   else [n for n in repository.list_nodes() if n.node_type == NodeType.MARKET])
+        self._markets = {node.id: node for node in markets}
 
     def record(self, evidence, normalized, proposal: ObservationProposal, resolved,
                *, extraction_method=ExtractionMethod.DETERMINISTIC, model=None, prompt_version=None):
@@ -92,6 +112,12 @@ class ConnectedMarketMemory:
         if subject is None:
             raise ValueError("observation subject is unresolved")
         context = dict(proposal.context)
+        if any(key in context for key in ("source_statement", "source_start", "source_end")):
+            left, right = context.get("source_start"), context.get("source_end")
+            if (type(left) is not int or type(right) is not int
+                or not 0 <= left <= proposal.start < proposal.end <= right <= len(text)
+                or context.get("source_statement") != text[left:right]):
+                raise ValueError("shared observation context must be an enclosing exact source span")
         target = resolved.get(context.pop("target_key", None))
         supporting = []
         for value in context.get("supporting_observation_ids", []):
@@ -168,7 +194,8 @@ class ConnectedMarketMemory:
         result = result or ExtractionResult()
         count = 0
         for proposal in proposals:
-            self.record(evidence, normalized, proposal, resolved)
+            self.record(evidence, normalized, proposal, resolved,
+                        prompt_version=result.prompt_version or MEMORY_VERSION)
             count += 1
         for proposal in result.observations:
             self.record(evidence, normalized, proposal, resolved,

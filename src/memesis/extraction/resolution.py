@@ -132,12 +132,14 @@ class EntityResolver:
     ) -> CanonicalNode:
         signature = _belief_signature(proposal)
         existing = self.repository.find_node_by_external_identifier("belief_signature", signature)
+        if not existing and hasattr(self.repository, "restore_retired_belief"):
+            existing = self.repository.restore_retired_belief(signature)
         if existing:
             self._add_alias(existing, proposal.proposition, evidence, proposal.confidence)
             return existing
-        candidates = [
-            node for node in self.repository.list_nodes() if node.node_type == NodeType.BELIEF
-        ]
+        candidates = (self.repository.belief_candidates(proposal.scope, proposal.modality, proposal.horizon)
+                      if hasattr(self.repository, "belief_candidates") else
+                      [node for node in self.repository.list_nodes() if node.node_type == NodeType.BELIEF])
         # Similarity proposes a connection; it cannot establish semantic identity.
         # Exact versioned signatures above are the only automatic belief merge.
         possible_equivalents = [

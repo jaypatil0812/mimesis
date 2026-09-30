@@ -8,14 +8,14 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from memesis.domain.schemas import Evidence
 
-MEMORY_VERSION = "connected-memory-v1"
+MEMORY_VERSION = "connected-memory-v2"
 
 
 def meaning(text: str) -> dict[str, object]:
     return {
         "negated": bool(re.search(r"\b(not|never|cannot|can't|won't|unlikely|without)\b", text, re.I)),
         "conditions": re.findall(
-            r"\b(?:if|unless|when|only for|provided that|for certain|in some)\b[^.;!?]*", text, re.I
+            r"\b(?:if|unless|when|only for|provided that|for certain|in some|in (?:the|this|that|a|the same) (?:pilot|trial|study|workload))\b[^.;!?]*", text, re.I
         ),
         "time_expressions": re.findall(
             r"\b(?:20\d{2}|(?:next|last) (?:year|month|quarter|week)|within \d+ (?:days|months|years)|today|currently)\b",

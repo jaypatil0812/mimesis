@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import UUID, uuid4, uuid5
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, cast, String, or_
 from sqlalchemy.orm import Session, sessionmaker
 
 from memesis.db.models import (
@@ -50,6 +51,7 @@ from memesis.domain.schemas import (
     Event,
     Evidence,
     EvidenceSpan,
+    ExtractionMethod,
     GraphEdge,
     Market,
     MergeDecision,
@@ -87,6 +89,117 @@ class SqlGraphRepository:
 
     def __init__(self, sessions: sessionmaker[Session]):
         self._sessions = sessions
+
+    @contextmanager
+    def atomic_repository(self):
+        """Bind ordinary repository commits to savepoints in one outer transaction."""
+        engine = self._sessions.kw["bind"]
+        with engine.connect() as connection:
+            with connection.begin():
+                # SQLite otherwise defers BEGIN until a write, so a first
+                # SAVEPOINT release could escape the outer rollback.
+                if connection.dialect.name == "sqlite":
+                    connection.exec_driver_sql("BEGIN")
+                sessions = sessionmaker(bind=connection, expire_on_commit=False,
+                                        join_transaction_mode="create_savepoint")
+                yield SqlGraphRepository(sessions)
+
+    def assertions_for_evidence(self, evidence_id):
+        with self._sessions() as session:
+            # UUID text filtering works on both JSON storage dialects; confirm
+            # membership after filtering rather than trusting substring matches.
+            evidence = session.get(EvidenceRow, str(evidence_id))
+            if evidence is None:
+                return []
+            rows = session.scalars(select(AssertionRow).where(
+                cast(AssertionRow.provenance, String).like("%" + str(evidence_id) + "%"))).all()
+            return [self._assertion_from_row(row) for row in rows
+                    if str(evidence_id) in row.provenance.get("evidence_ids", [])]
+
+    def retire_generated_assertion(self, assertion_id, rebuild_id):
+        """Retain ledger/history, retract owned projections, protect human reviews."""
+        with self._sessions.begin() as session:
+            row = session.get(AssertionRow, str(assertion_id))
+            if row is None or row.review_state not in {"accepted", "proposed"}:
+                return False
+            if row.object_value.get("reviews"):
+                return False
+            if row.extraction_method == ExtractionMethod.ANALYST.value:
+                return False
+            # The legacy ledger review API archives the previous state instead
+            # of recording a named memory review. Preserve that review too.
+            revisions = session.scalars(select(GraphRevisionRow).where(
+                GraphRevisionRow.record_type == "assertion", GraphRevisionRow.record_id == row.id)).all()
+            if any(revision.record.get("review_state") in {"proposed", "rejected"}
+                   for revision in revisions):
+                return False
+            edges = [edge for edge in session.scalars(select(GraphEdgeRow).where(
+                GraphEdgeRow.active.is_(True), cast(GraphEdgeRow.qualifiers, String).like("%" + row.id + "%")))
+                     if edge.qualifiers.get("assertion_id") == row.id
+                     or edge.qualifiers.get("memory_assertion_id") == row.id]
+            if any(edge.qualifiers.get("reviewed_by") for edge in edges):
+                return False
+            self._archive_revision(session, "assertion", row.id,
+                                   self._assertion_from_row(row).model_dump(mode="json"))
+            row.review_state = "superseded"
+            row.object_value = {**row.object_value, "superseded_by_rebuild": str(rebuild_id)}
+            for edge in edges:
+                self._archive_revision(session, "edge", edge.id,
+                                       self._edge_from_row(edge).model_dump(mode="json"))
+                edge.active = False
+            session.flush()
+            return True
+
+    def record_extraction_rebuild(self, rebuild_id, receipt):
+        with self._sessions.begin() as session:
+            self._archive_revision(session, "extraction_rebuild", str(rebuild_id), receipt)
+
+    def prune_retired_beliefs(self, evidence_id):
+        """Hide unsupported old belief projections; never erase source or history."""
+        with self._sessions.begin() as session:
+            nodes = list(session.scalars(select(GraphNodeRow).where(
+                GraphNodeRow.node_type == NodeType.BELIEF.value, GraphNodeRow.active.is_(True),
+                cast(GraphNodeRow.provenance, String).like("%" + str(evidence_id) + "%"))))
+            if not nodes:
+                return
+            ids = {node.id for node in nodes}
+            edges = list(session.scalars(select(GraphEdgeRow).where(GraphEdgeRow.active.is_(True),
+                or_(GraphEdgeRow.from_node_id.in_(ids), GraphEdgeRow.to_node_id.in_(ids)))))
+            supported = {value for edge in edges for value in (edge.from_node_id, edge.to_node_id)}
+            assertions = list(session.scalars(select(AssertionRow).where(
+                AssertionRow.review_state.in_(["accepted", "proposed"]),
+                or_(AssertionRow.subject_id.in_(ids), *[
+                    cast(AssertionRow.object_value, String).like("%" + node_id + "%") for node_id in ids]))))
+            supported.update(row.subject_id for row in assertions)
+            supported.update(str(row.object_value.get("target_id")) for row in assertions)
+            for node in nodes:
+                if str(evidence_id) in node.provenance.get("evidence_ids", []) and node.id not in supported:
+                    self._archive_revision(session, "node", node.id,
+                                           self._node_from_row(node).model_dump(mode="json"))
+                    node.active = False
+                    node.attributes = {**node.attributes, "retired_interpretation": True}
+
+    def restore_retired_belief(self, signature):
+        """Restore an exact re-supported interpretation, never a deleted identity."""
+        with self._sessions.begin() as session:
+            identifier = session.scalar(select(EntityExternalIdentifierRow).where(
+                EntityExternalIdentifierRow.identifier_type == "belief_signature",
+                EntityExternalIdentifierRow.normalized_value == signature))
+            node = session.get(GraphNodeRow, identifier.node_id) if identifier else None
+            if not node or node.active or node.node_type != NodeType.BELIEF.value:
+                return None
+            if not node.attributes.get("retired_interpretation"):
+                return None
+            deleted = session.scalar(select(TombstoneRow).where(
+                TombstoneRow.record_type == "node", TombstoneRow.record_id == node.id))
+            if deleted:
+                return None
+            self._archive_revision(session, "node", node.id,
+                                   self._node_from_row(node).model_dump(mode="json"))
+            node.active = True
+            node.attributes = {**node.attributes, "retired_interpretation": False}
+            session.flush()
+            return self._node_from_row(node)
 
     def add_source(self, source: Source) -> Source:
         with self._sessions.begin() as session:
@@ -732,6 +845,22 @@ class SqlGraphRepository:
             ).all()
             return [self._node_from_row(row) for row in rows]
 
+    def list_nodes_by_type(self, node_type):
+        with self._sessions() as session:
+            rows = session.scalars(select(GraphNodeRow).where(
+                GraphNodeRow.active.is_(True), GraphNodeRow.node_type == node_type.value)).all()
+            return [self._node_from_row(row) for row in rows]
+
+    def belief_candidates(self, scope, modality, horizon):
+        """Apply the resolver's existing meaning boundaries before materializing nodes."""
+        with self._sessions() as session:
+            rows = session.scalars(select(GraphNodeRow).where(
+                GraphNodeRow.active.is_(True), GraphNodeRow.node_type == NodeType.BELIEF.value,
+                GraphNodeRow.attributes["scope"].as_string() == scope,
+                GraphNodeRow.attributes["modality"].as_string() == modality,
+                GraphNodeRow.attributes["horizon"].as_string() == horizon)).all()
+            return [self._node_from_row(row) for row in rows]
+
     def list_edges(self) -> list[GraphEdge]:
         with self._sessions() as session:
             rows = session.scalars(
@@ -919,6 +1048,14 @@ class SqlGraphRepository:
             )
             row.review_state = review_state
             row.recorded_at = datetime.now(UTC)
+            if review_state != "accepted":
+                for edge in session.scalars(select(GraphEdgeRow).where(
+                    GraphEdgeRow.active.is_(True),
+                    cast(GraphEdgeRow.qualifiers, String).like("%" + row.id + "%"))):
+                    if edge.qualifiers.get("assertion_id") == row.id:
+                        self._archive_revision(session, "edge", edge.id,
+                                               self._edge_from_row(edge).model_dump(mode="json"))
+                        edge.active = False
             session.flush()
             return self._assertion_from_row(row)
 
@@ -1134,9 +1271,12 @@ class SqlGraphRepository:
             validate_edge_endpoints(
                 edge.edge_type, NodeType(source.node_type), NodeType(target.node_type)
             )
-            provenance_key = hashlib.sha256(
-                json.dumps(edge.provenance.model_dump(mode="json"), sort_keys=True).encode()
-            ).hexdigest()
+            provenance_body = json.dumps(edge.provenance.model_dump(mode="json"), sort_keys=True)
+            # Versioned projections of the same source may have different
+            # meanings. Give each owning assertion its own retractable edge.
+            if edge.qualifiers.get("assertion_id"):
+                provenance_body += ":assertion:" + str(edge.qualifiers["assertion_id"])
+            provenance_key = hashlib.sha256(provenance_body.encode()).hexdigest()
             row = session.scalar(
                 select(GraphEdgeRow).where(
                     GraphEdgeRow.edge_type == edge.edge_type.value,

@@ -24,6 +24,31 @@ class InvestigationStore:
             row = session.get(InvestigationRow, str(investigation_id))
             return self.record(row) if row else None
 
+    def invalidate_evidence(self, evidence_ids, rebuild_id):
+        """Queue analysis where tracked evidence or retained snapshots changed."""
+        changed = set(map(str, evidence_ids))
+        affected = []
+        with self.sessions.begin() as session:
+            for row in session.scalars(select(InvestigationRow)):
+                state = dict(row.state_json)
+                tracked = set(state.get("tracked_evidence_ids", []))
+                snapshots = session.scalars(select(InvestigationSnapshotRow).where(
+                    InvestigationSnapshotRow.investigation_id == row.id)).all()
+                # Snapshot JSON layouts are versioned; UUID membership in the
+                # serialized immutable snapshot conservatively includes paths.
+                import json
+                snapshot_text = json.dumps([s.payload_json for s in snapshots], default=str)
+                if not (tracked & changed or any(eid in snapshot_text for eid in changed)):
+                    continue
+                state.pop("last_fingerprint", None)
+                state["memory_rebuild_pending"] = {"rebuild_id": str(rebuild_id),
+                                                 "evidence_ids": sorted(tracked & changed)}
+                row.state_json = state
+                row.next_due_at = datetime.now(UTC)
+                row.updated_at = datetime.now(UTC)
+                affected.append(row.id)
+        return affected
+
     def list(self):
         with self.sessions() as session:
             return [self.record(row) for row in session.scalars(select(InvestigationRow).order_by(InvestigationRow.created_at))]

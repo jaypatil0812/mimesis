@@ -13,6 +13,7 @@ from memesis.extraction.contracts import (
     ExternalIdentifierProposal,
     ExtractionResult,
     RelationshipProposal,
+    DETERMINISTIC_VERSION,
 )
 from memesis.extraction.meaning import attribution
 
@@ -50,10 +51,10 @@ _PROPOSITION = re.compile(
 )
 _EVENT_ONLY = re.compile(r"\b(released|launched|introduced|unveiled)\b", re.IGNORECASE)
 _FIRST_PERSON = re.compile(r"\b(i believe|i think|we believe|we expect|we predict)\b", re.I)
-_RELEVANCE = re.compile(
-    r"\b(ai|model|models|inference|infrastructure|llm|compute|deployment|runtime|"
-    r"frontier|specialized|quantized|edge|enterprise|claude|gpt|open weights)\b",
-    re.IGNORECASE,
+_OBSERVED_CHANGE = re.compile(
+    r"\b(declin(?:e|es|ed)|increas(?:e|es|ed)|decreas(?:e|es|ed)|"
+    r"reduc(?:e|es|ed)|rais(?:e|es|ed)|grew|grown|fell|risen|improv(?:e|es|ed)|"
+    r"worsen(?:s|ed)?|paid|switched|failed|require[sd]?|reported)\b", re.I,
 )
 _NON_CLAIM = re.compile(
     r"^(you can|more details|click here|learn more|download|subscribe|sign up)\b",
@@ -66,7 +67,7 @@ def _entity_key(prefix: str, value: str) -> str:
 
 
 class DeterministicExtractor:
-    version = "deterministic-phase3-v3"
+    version = DETERMINISTIC_VERSION
 
     def extract(self, evidence: Evidence) -> ExtractionResult:
         text = evidence.normalized_text or evidence.raw_text
@@ -213,7 +214,8 @@ class DeterministicExtractor:
             end = start + len(sentence)
             belief_start, proposition = self._belief_text(sentence, start)
             if proposition is None:
-                if len(sentence.split()) >= 8 and not _EVENT_ONLY.search(sentence):
+                from memesis.knowledge.memory import statement_candidate
+                if len(sentence.split()) >= 4 and statement_candidate(sentence):
                     ambiguous.append((start, end))
                 continue
             key = f"belief:{index}:{sha256(proposition.casefold().encode()).hexdigest()[:12]}"
@@ -234,6 +236,13 @@ class DeterministicExtractor:
                     0.86,
                 )
             )
+            # Rules retain the complete proposition, but cannot reliably unpack
+            # attribution, comparisons, or shared qualifications. Send the full
+            # sentence to the optional structured adapter as well.
+            if _OBSERVED_CHANGE.search(sentence) or attribution(sentence) in {"criticism", "reported_or_quoted"} or re.search(
+                r"\b(but|whereas|although|unless|if|when|pilot|trial)\b", sentence, re.I
+            ):
+                ambiguous.append((start, end))
             relationships.append(
                 RelationshipProposal(
                     EdgeType.EXPRESSES,
@@ -263,6 +272,7 @@ class DeterministicExtractor:
             tuple(beliefs),
             tuple(relationships),
             ambiguous_spans=tuple(ambiguous),
+            prompt_version=self.version,
         )
 
     def extract_metadata(self, evidence: Evidence) -> ExtractionResult:
@@ -374,8 +384,7 @@ class DeterministicExtractor:
         if (
             sentence.endswith("?")
             or len(sentence.split()) < 5
-            or not _PROPOSITION.search(sentence)
-            or not _RELEVANCE.search(sentence)
+            or not (_PROPOSITION.search(sentence) or _OBSERVED_CHANGE.search(sentence))
             or _NON_CLAIM.search(sentence)
             or sentence[0].islower()
             or sentence[0].isdigit()
@@ -384,15 +393,8 @@ class DeterministicExtractor:
             or sentence.startswith("#")
         ):
             return absolute_start, None
-        attribution = _ATTRIBUTION.match(sentence)
-        if attribution:
-            sentence = sentence[attribution.end() :]
-            absolute_start += attribution.end()
-        else:
-            attribution = _ATTRIBUTION_ANYWHERE.search(sentence)
-            if attribution:
-                sentence = sentence[attribution.end() :]
-                absolute_start += attribution.end()
+        # Keep the speaker, quotations and criticism in the source proposition.
+        # Removing a reporting prefix can turn a quotation into an endorsement.
         sentence = sentence.strip()
         if not sentence or (
             _EVENT_ONLY.search(sentence)
@@ -432,15 +434,8 @@ class DeterministicExtractor:
 
     @staticmethod
     def _scope(text: str) -> str:
-        lowered = text.casefold()
-        for phrase in (
-            "enterprise workloads",
-            "enterprise inference",
-            "consumer applications",
-            "edge devices",
-            "ai infrastructure",
-            "language models",
-        ):
-            if phrase in lowered:
-                return phrase
+        # Scope is source wording, not a predefined market taxonomy.
+        match = re.search(r"\b(?:for|within|under|in (?:the|this|that|a|the same))\s+[^.;!?]+", text, re.I)
+        if match:
+            return match.group(0)
         return "unspecified"

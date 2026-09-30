@@ -9,6 +9,7 @@ from dataclasses import replace
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid5
 
 from memesis.domain.schemas import (
     Assertion,
@@ -48,6 +49,7 @@ class EvidenceGraphReport:
     assertions_written: int = 0
     edges_written: int = 0
     ambiguous_items: int = 0
+    unresolved_without_model: int = 0
     llm_calls: int = 0
     strong_model_calls: int = 0
     memory_observations_processed: int = 0
@@ -137,9 +139,12 @@ class EvidenceGraphPipeline:
             results = [self._with_current_metadata(evidence, result) for result in cached_results]
             deterministic = results[0]
         else:
-            deterministic = self.extractor.extract(evidence)
+            deterministic = replace(self.extractor.extract(evidence),
+                                    prompt_version=DETERMINISTIC_VERSION + ":" + self.interpretation_version)
             results = [deterministic]
         report.ambiguous_items += len(deterministic.ambiguous_spans)
+        if not self.cheap_model:
+            report.unresolved_without_model += len(deterministic.ambiguous_spans)
         if not cached and self.cheap_model and deterministic.ambiguous_spans:
             span_pack = [
                 {
@@ -291,6 +296,12 @@ class EvidenceGraphPipeline:
                 accepted = False
             assertion = self.repository.add_assertion(
                 Assertion(
+                    id=uuid5(evidence.id, "projection:" + hashlib.sha256(json.dumps({
+                        "source": str(source.id), "target": str(target.id),
+                        "predicate": relation.edge_type.value, "start": start, "end": end,
+                        "qualifiers": relation.qualifiers, "method": result.extraction_method.value,
+                        "model": result.extraction_model, "prompt": result.prompt_version,
+                    }, sort_keys=True, default=str).encode()).hexdigest()),
                     subject_id=source.id,
                     predicate=relation.edge_type.value,
                     object_value={

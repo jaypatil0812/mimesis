@@ -71,7 +71,15 @@ class OpenAICompatibleStructuredExtractor:
 
     @staticmethod
     def _instructions() -> str:
-        return """You extract only explicit evidence from supplied spans.
+        return """You extract only explicit evidence from supplied spans, in ANY market or domain.
+Recognizing an observation is separate from assigning a market. Do not require AI
+terminology or assign a Market just because a document mentions a broad topic.
+Split distinct outcomes/products/conditions into separate observations where the
+source supports them. Preserve the complete sentence in context.source_statement
+and original offsets in context.source_start/source_end when clauses share scope.
+Never remove negation or widen a pilot/trial/workload result into a universal claim.
+Do not invent an omitted subject to manufacture an exact quotation; use the full
+source span when a clause cannot stand alone. Leave uncertain meaning proposed.
 Return one JSON object with arrays: entities, beliefs, relationships, observations, ambiguous_spans.
 Use only these node types: Person, Company, Market, Product, Event.
 Do not return Content; it is deterministic. A belief must be a contestable proposition,

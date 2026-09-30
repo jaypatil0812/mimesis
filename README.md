@@ -28,6 +28,7 @@
 Current local backend additions: [evidence-dependent answers](docs/EVIDENCE_REASONING.md)
 and [continuous bounded investigations](docs/INVESTIGATIONS.md).
 Quality is assessed through [layer diagnostics and human decision review](docs/INTELLIGENCE_EVALUATION.md).
+Extraction and stored-memory upgrades follow [market-neutral extraction and controlled rebuilds](docs/MARKET_NEUTRAL_EXTRACTION.md).
 
 ## 🎯 The Core Thesis
 
