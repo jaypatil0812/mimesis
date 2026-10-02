@@ -58,6 +58,7 @@ class ProfileReport:
 
     pipeline_b_tokens: int = 0
     pipeline_b_cost_usd: float = 0.0
+    cost_status: str = "unavailable"
     deep_reasoning_invoked: bool = False
     recommendations: list[OptimizationRecommendation] = field(default_factory=list)
 
@@ -100,6 +101,7 @@ class ProfileReport:
         lines.append(f"\nCache: {self.cache_hits} hits / {self.cache_misses} misses "
                      f"({self.cache_hit_pct:.1f}%)")
         lines.append(f"Deep reasoning invoked: {self.deep_reasoning_invoked}")
+        lines.append(f"Cost status: {self.cost_status}; displayed numeric costs are incomplete subtotals when unavailable, not free provider calls.")
         lines.append(f"\nRanked Bottlenecks:")
         total_time = max(self.total_wall_time_ms, 0.001)
         for i, b in enumerate(self.bottlenecks(), 1):
@@ -131,7 +133,8 @@ class ProfileReport:
             "total_db_queries": self.total_db_queries,
             "total_llm_cost_usd": self.total_llm_cost_usd,
             "pipeline_b_tokens": self.pipeline_b_tokens,
-            "pipeline_b_cost_usd": self.pipeline_b_cost_usd,
+            "pipeline_b_cost_usd": self.pipeline_b_cost_usd if self.cost_status != "unavailable" else None,
+            "cost_status": self.cost_status,
             "deep_reasoning_invoked": self.deep_reasoning_invoked,
             "cache_hit_pct": self.cache_hit_pct,
             "cache_hits": self.cache_hits,
@@ -269,6 +272,7 @@ class PipelineProfiler:
             # Fill report summary metrics
             report.pipeline_b_tokens = metrics.total_tokens
             report.pipeline_b_cost_usd = metrics.estimated_cost_usd
+            report.cost_status = metrics.cost_status
             report.deep_reasoning_invoked = metrics.deep_reasoning_invoked
             report.cache_hits = metrics.cache_hits
 

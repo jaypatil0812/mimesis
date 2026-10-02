@@ -36,6 +36,11 @@ def observation_dict(record, repository=None):
             "challenged" if any(p is None or p.review_state in {"rejected", "superseded"} for p in premises) else
             "reviewed_premises" if all(p.review_state == "accepted" for p in premises) else "candidate_premises"
         )
+    if repository is not None:
+        result["source_spans"] = [{"id": str(span.id), "start": span.start_offset,
+            "end": span.end_offset, "text": span.exact_text,
+            "normalized_document_id": str(span.normalized_document_id)}
+            for sid in record.evidence_span_ids if (span := repository.get_evidence_span(sid)) is not None]
     return result
 
 

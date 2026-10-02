@@ -1,6 +1,7 @@
 """Environment-backed application configuration."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -26,7 +27,12 @@ class Settings(BaseSettings):
     decision_engine: str = "hybrid"  # "heuristic", "jev", or "hybrid"
     typesafe_api_key: str | None = None
     typesafe_base_url: str = "https://api.typesafe.ai"
-    typesafe_model: str = "jev-1.13"
+    typesafe_model: str = "jev-latest"
+    # Optional estimates, configured for the actual deployed models. No guessed prices.
+    decision_input_usd_per_million: float | None = Field(default=None, ge=0)
+    decision_output_usd_per_million: float | None = Field(default=None, ge=0)
+    reasoning_input_usd_per_million: float | None = Field(default=None, ge=0)
+    reasoning_output_usd_per_million: float | None = Field(default=None, ge=0)
     openrouter_api_key: str | None = None
 
     # Pipeline optimization flags — set to False to disable specific optimizations

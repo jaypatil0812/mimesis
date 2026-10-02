@@ -39,8 +39,8 @@ criticisms, company statements, actions and customer experiences. Preserve condi
 attribution and time horizons. A source saying something does not establish it as true.
 Proposed memory observations are candidates, never observed facts. Accepted records still require
 semantic support. Source-family repetition is not independent corroboration. Timing, popularity,
-scores and graph proximity do not prove causality, prediction or adoption. Historical analogues
-are unsourced curated templates, never evidence of a historical event or an inevitable outcome.
+scores and graph proximity do not prove causality, prediction or adoption. Historical comparisons
+require cited dated source observations; shared structure never establishes an inevitable outcome.
 Every conclusion includes evidence_ids, observation_ids and reasoning describing how the premises
 support it. OBSERVED requires cited source passages. Interpretations are INFERRED. Exploratory
 connections may be SPECULATIVE even with no citations, provided reasoning clearly identifies the
@@ -78,7 +78,7 @@ class StrategicReasoningAdapter:
             raise ValueError("Invalid provider usage")
         self.last_execution.update(status="invalid_response", model=data.get("model", self.config.reason_strong_model),
             input_tokens=input_tokens, output_tokens=output_tokens,
-            usage_source="provider_reported" if usage else "unavailable")
+            usage_source="provider_reported" if all(type(usage.get(key)) is int for key in ("prompt_tokens", "completion_tokens")) else "unavailable")
         answer = StrategicAnswer.model_validate_json(data["choices"][0]["message"]["content"])
         known = {e["id"] for e in packet.primary_evidence_references}
         observations = {o["id"]: o for o in packet.memory_observations}

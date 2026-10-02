@@ -15,6 +15,7 @@ from memesis.graph.repository import GraphRepository
 from memesis.reasoning.decision_engine import DecisionEngine, DecisionType
 from memesis.reasoning.planner import QueryPlan
 from memesis.retrieval.scope import QueryScope, ScopedGraphRepository, utc
+from memesis.retrieval.relevance import overlap
 
 
 class MinimumSufficientSubgraph(BaseModel):
@@ -80,7 +81,7 @@ class ContextBuilder:
             name_lower = node.name.lower()
             if investigation or any(e.lower() in name_lower for e in plan.intent.entities):
                 seed_nodes.append(node)
-            elif any(w in name_lower for w in ["small", "model", "specialized", "inference", "router", "routing", "latency", "cost"]):
+            elif overlap(query_text, name_lower) > 0:
                 seed_nodes.append(node)
 
         # If no seeds found, use all nodes matching target node types
@@ -139,7 +140,7 @@ class ContextBuilder:
                 "references": [str(nid)],
             }
             rel_dec = self.decision_engine.evaluate(DecisionType.RELEVANCE, ctx)
-            if rel_dec.decision == "RELEVANT" or node.id in seed_ids or view.scope.market_id is not None:
+            if rel_dec.decision in {"RELEVANT", "UNCERTAIN"} or node.id in seed_ids or view.scope.market_id is not None:
                 filtered_nodes[nid] = node
 
         # Step 5: Rank nodes within their type
@@ -160,8 +161,8 @@ class ContextBuilder:
             # Relevance boost
             if any(e.lower() in node.name.lower() for e in plan.intent.entities):
                 score += 40.0
-            elif not investigation and any(w in node.name.lower() for w in ["small", "specialized", "inference", "cost", "routing"]):
-                score += 25.0
+            elif not investigation:
+                score += 25.0 * overlap(query_text, node.name)
 
             # Degree / connectivity boost
             score += min(node_degrees[nid] * 5.0, 30.0)
@@ -221,7 +222,11 @@ class ContextBuilder:
                 if ev.id in (view.scope.evidence_seeds or ()):
                     score += 60
             txt = (ev.raw_text or "").lower()
-            if not investigation and any(term in txt for term in ["small", "specialized", "inference", "cost", "latency"]):
+            if not investigation:
+                score += 30.0 * overlap(query_text, txt)
+            # Keep counterevidence competitive within finite context budgets.
+            if any(edge.qualifiers.get("stance") in {"opposes", "qualifies"}
+                   and ev.id in edge.provenance.evidence_ids for edge in retained_edges):
                 score += 30.0
             if ev.extraction_method.value in {"source_explicit", "deterministic"}:
                 score += 20.0

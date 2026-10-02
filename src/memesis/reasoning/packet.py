@@ -180,6 +180,8 @@ class IntelligencePacketBuilder:
             "Source families identify known copies; undiscovered syndication may remain.",
             "Independent reporting is not established by distinct actor names; confidence uses explicitly verified independence metadata only."]
         missing_info.extend(subgraph.coverage.get("limits", []))
+        if not analogues:
+            missing_info.append("No reviewed, dated historical comparison with a shared explicit use case or relation was retrieved. No historical precedent is inferred from generic templates.")
         missing_info.append("Memory review states and perception metadata are not reconstructed historically; an earlier cutoff is not a full database replay.")
         for label, records in (("beliefs", key_beliefs), ("actors", key_actors), ("company actions", competitor_actions),
                                ("customer experiences", customer_perception), ("market relationships", market_relationships),

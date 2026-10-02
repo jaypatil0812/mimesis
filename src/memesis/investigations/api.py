@@ -39,6 +39,13 @@ def lag(record):
 def list_investigations(request: Request):
     return {"investigations": [lag(r) for r in store(request).list()], "worker": store(request).health()}
 
+
+@router.get("/investigations/templates")
+def research_templates():
+    from memesis.investigations.templates import templates
+    return {"templates": templates(), "human_review_status": "pending",
+            "semantics": "Draft questions; no customer validation or market conclusions established."}
+
 @router.get("/markets/{market_id}/investigations")
 def market_investigations(request: Request, market_id: UUID):
     return {"investigations": [lag(r) for r in store(request).list() if r["config"]["scope"].get("market_id") == str(market_id)],
@@ -88,4 +95,6 @@ def review(request: Request, key: UUID, pattern_id: str, body: ReviewRequest):
         store(request).review(key, pattern_id, body.state, body.reviewer, body.note)
     except KeyError as error:
         raise HTTPException(404, "Pattern not found") from error
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
     return {"status": body.state, "graph_assertions_promoted": False, "review_history": store(request).reviews(key)}

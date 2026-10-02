@@ -135,6 +135,7 @@ class ClaimSupportVerifier:
                 "cited_evidence": citations,
             })
 
+        usage = {}
         try:
             started = time.perf_counter()
             response = httpx.post(
@@ -156,9 +157,11 @@ class ClaimSupportVerifier:
             )
             response.raise_for_status()
             body = response.json()
+            usage = body.get("usage") or {}
+            if not isinstance(usage, dict) or any(type(usage.get(key)) is not int or usage[key] < 0 for key in ("prompt_tokens", "completion_tokens")):
+                usage = {}
             parsed = json.loads(body["choices"][0]["message"]["content"])
             raw_results = parsed.get("results", [])
-            usage = body.get("usage", {})
             latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
         except Exception as exc:
             # Verification failure is visible but never turns into answer failure.
@@ -177,6 +180,9 @@ class ClaimSupportVerifier:
                     "model": settings.reason_strong_model,
                     "claims_assessed": 0,
                     "error_type": type(exc).__name__,
+                    "usage_source": "provider_reported" if usage else "unavailable",
+                    "input_tokens": usage.get("prompt_tokens", 0),
+                    "output_tokens": usage.get("completion_tokens", 0),
                 },
             )
 
@@ -212,6 +218,7 @@ class ClaimSupportVerifier:
         audit = {
             "enabled": True,
             "provider_call_made": True,
+            "usage_source": "provider_reported" if usage else "unavailable",
             "provider": "openai_compatible",
             "model": settings.reason_strong_model,
             "claims_assessed": len(assessed),

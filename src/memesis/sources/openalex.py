@@ -112,7 +112,8 @@ class OpenAlexAdapter:
             except (
                 Exception
             ) as error:  # source-isolated: other OpenAlex resource types still complete
-                failures.append({"resource": resource, "error": type(error).__name__})
+                failures.append({"resource": resource, "error": type(error).__name__,
+                    "http_status": str(getattr(getattr(error, "response", None), "status_code", "unknown"))})
                 next_boundaries[resource] = saved_boundaries.get(resource)
         complete = not any(state["paging"].values()) and not failures
         return CollectionBatch(

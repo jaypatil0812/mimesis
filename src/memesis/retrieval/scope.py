@@ -316,7 +316,15 @@ class ScopedGraphRepository:
                     continue
                 if self.scope.start_at and utc(p.observed_at) < self.scope.start_at:
                     continue
-                result.append(p.model_dump(mode="json"))
+                result.append({**p.model_dump(mode="json"), "review_state": "proposed",
+                    "qualification": "Legacy perception rule output; sentiment and actor attribution require semantic review."})
+        for item in self.memory_observations(allowed):
+            context = item.get("context", {})
+            if not context.get("perception_dimensions"):
+                continue
+            result.append({**item, "dimension": context["perception_dimensions"],
+                "stance": context.get("stance", "neutral"), "actor_id": context.get("actor_id"),
+                "qualification": "Attributable perception candidate; review state applies to the complete scoped source statement."})
         return result
 
     def get_assertion(self, assertion_id: UUID):
