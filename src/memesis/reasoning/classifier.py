@@ -156,7 +156,7 @@ class QueryClassifier:
         # Decision being considered
         decision_being_considered: str | None = None
         if "investigate" in lower or "should we care" in lower:
-            decision_being_considered = "Infrastructure architecture, model routing, or specialized deployment investigation"
+            decision_being_considered = "Investigate the question's supported relationships, alternatives and missing evidence"
 
         # Required graph objects
         required_objects: set[NodeType] = {NodeType.BELIEF, NodeType.COMPANY, NodeType.PERSON}

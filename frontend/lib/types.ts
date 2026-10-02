@@ -89,7 +89,7 @@ export interface CitedEvidence {
 export interface HistoricalAnalogue {
   analogue: string;
   time_lag_observed: string;
-  similarity_confidence: number;
+  similarity_confidence: number | null;
   similarities: string[];
   differences: string[];
 }
@@ -116,7 +116,9 @@ export interface AskResponse {
     total_tokens: number;
     cheap_tokens: number;
     expensive_tokens: number;
-    estimated_cost_usd: number;
+    estimated_cost_usd: number | null;
+    usage_complete?: boolean;
+    cost_status?: string;
     deep_reasoning_invoked: boolean;
     jev_decisions: number;
     nodes_considered: number;

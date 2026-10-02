@@ -193,6 +193,8 @@ class InvestigationStore:
                     .where(InvestigationRunRow.investigation_id == str(key)).order_by(InvestigationRunRow.started_at.desc()).limit(limit))]
 
     def review(self, key, pattern_id, state, reviewer, note):
+        if not reviewer.strip() or not note.strip():
+            raise ValueError("A reviewer and supporting note are required")
         with self.sessions.begin() as session:
             snapshots = session.scalars(select(InvestigationSnapshotRow).where(InvestigationSnapshotRow.investigation_id == str(key)))
             if not any(any(p["id"] == pattern_id for p in row.payload_json.get("patterns", [])) for row in snapshots):

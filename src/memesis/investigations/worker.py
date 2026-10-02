@@ -17,6 +17,7 @@ from memesis.sources.hackernews import HackerNewsAdapter
 from memesis.sources.openalex import OpenAlexAdapter, RESOURCE_TYPES
 from memesis.sources.rss import RssAdapter
 from memesis.sources.github import GitHubAdapter
+from memesis.sources.web import WebPageAdapter
 
 class InvestigationWorker:
     def __init__(self, repository, store, *, adapter_factory=None, service=None):
@@ -27,6 +28,8 @@ class InvestigationWorker:
         self.service = service or InvestigationService(repository)
 
     def make_adapter(self, source):
+        if source.source == "web":
+            return WebPageAdapter(self.http, str(source.page_url))
         if source.source == "github":
             return GitHubAdapter(self.http)
         if source.source == "hackernews":

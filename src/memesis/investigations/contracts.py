@@ -4,17 +4,20 @@ from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
-INVESTIGATION_VERSION = "investigation-v1"
+INVESTIGATION_VERSION = "investigation-v2"
 
 class SourceWatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    source: Literal["hackernews", "bluesky", "openalex", "rss", "github"]
+    source: Literal["hackernews", "bluesky", "openalex", "rss", "github", "web"]
     query: str = Field(min_length=1, max_length=500)
     feed_url: HttpUrl | None = None
+    page_url: HttpUrl | None = None
     @model_validator(mode="after")
     def rss_feed(self):
         if self.source == "rss" and not self.feed_url:
             raise ValueError("RSS requires feed_url")
+        if self.source == "web" and not self.page_url:
+            raise ValueError("Web collection requires page_url")
         return self
 
 class InvestigationScope(BaseModel):
@@ -43,7 +46,7 @@ class InvestigationConfig(BaseModel):
     processing_version: str = Field(default="memory-worker-v1", min_length=1, max_length=40)
     @model_validator(mode="after")
     def bounded_sources(self):
-        keys = [(s.source, s.query, str(s.feed_url)) for s in self.sources]
+        keys = [(s.source, s.query, str(s.feed_url), str(s.page_url)) for s in self.sources]
         if len(keys) != len(set(keys)):
             raise ValueError("duplicate source watches")
         return self
@@ -52,7 +55,7 @@ class Followup(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=1000)
     query: str = Field(min_length=1, max_length=500)
-    source: Literal["hackernews", "bluesky", "openalex", "rss", "github"]
+    source: Literal["hackernews", "bluesky", "openalex", "rss", "github", "web"]
     rationale: str = Field(min_length=1, max_length=2000)
 
 class PatternCandidate(BaseModel):

@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from memesis.analysis.scoring import DeterministicScoringService
 from memesis.graph.repository import GraphRepository
-from memesis.reasoning.budget import QueryExecutionMetrics
+from memesis.reasoning.budget import QueryExecutionMetrics, reasoning_receipts
 from memesis.config import settings
 from memesis.reasoning.adapter import StrategicReasoningAdapter
 from memesis.reasoning.classifier import QueryClassifier, QueryIntent
@@ -65,6 +65,9 @@ class MemesisReasoningEngine:
         scope: QueryScope | None = None,
     ) -> tuple[ReasoningOutput, QueryExecutionMetrics, IntelligencePacket]:
         start_time = time.perf_counter()
+        usage_start = len(self.decision_engine.usage_events)
+        decisions_start = self.decision_engine.decisions_made
+        cache_start = self.decision_engine.cache_hits
         if scope is not None and as_of is not None and utc(as_of) != scope.as_of:
             raise ValueError("as_of must match the explicit query scope")
         scope = scope or QueryScope(as_of=as_of or datetime.now(UTC))
@@ -158,14 +161,14 @@ class MemesisReasoningEngine:
                 nodes_retained=subgraph.nodes_retained,
                 evidence_considered=subgraph.evidence_considered,
                 evidence_retained=subgraph.evidence_retained,
-                jev_decisions=self.decision_engine.decisions_made,
+                jev_decisions=self.decision_engine.decisions_made - decisions_start,
                 cheap_model_tokens=0,
                 expensive_model_tokens=support_result.input_tokens + support_result.output_tokens,
-                cache_hits=self.decision_engine.cache_hits,
+                cache_hits=self.decision_engine.cache_hits - cache_start,
                 latency_ms=round(elapsed_ms, 2),
                 deep_reasoning_invoked=False,
             )
-            metrics.compute_cost()
+            metrics.apply_usage(self.decision_engine.usage_events[usage_start:] + reasoning_receipts({}, support_result), settings)
             return fallback_output, metrics, packet
 
         # 8. Synthesis
@@ -191,14 +194,14 @@ class MemesisReasoningEngine:
             nodes_retained=subgraph.nodes_retained,
             evidence_considered=subgraph.evidence_considered,
             evidence_retained=subgraph.evidence_retained,
-            jev_decisions=self.decision_engine.decisions_made,
+            jev_decisions=self.decision_engine.decisions_made - decisions_start,
             cheap_model_tokens=cheap_tokens,
             expensive_model_tokens=expensive_tokens,
-            cache_hits=self.decision_engine.cache_hits,
+            cache_hits=self.decision_engine.cache_hits - cache_start,
             latency_ms=round(elapsed_ms, 2),
             deep_reasoning_invoked=execution.get("provider_call_attempted", False),
         )
-        metrics.compute_cost()
+        metrics.apply_usage(self.decision_engine.usage_events[usage_start:] + reasoning_receipts(execution, support_result), settings)
 
         # 11. Persist Reasoning Run
         run_id = uuid4()

@@ -249,7 +249,9 @@ def evaluate_phase5(repository: GraphRepository, output_path: Path | None = None
                 "total_tokens": metrics_b.total_tokens,
                 "expensive_model_calls": 1 if metrics_b.deep_reasoning_invoked else 0,
                 "latency_ms": metrics_b.latency_ms,
-                "estimated_cost_usd": metrics_b.estimated_cost_usd,
+                "estimated_cost_usd": metrics_b.estimated_cost_usd if metrics_b.cost_status != "unavailable" else None,
+                "usage_complete": metrics_b.usage_complete,
+                "cost_status": metrics_b.cost_status,
                 "confidence": output_b.confidence.overall_confidence,
                 "fallback_status": output_b.fallback_status,
             },
@@ -264,15 +266,15 @@ def evaluate_phase5(repository: GraphRepository, output_path: Path | None = None
                 "expensive_model_calls": 1 if metrics_a.deep_reasoning_invoked else 0,
                 "reasoning_execution": output_a.reasoning_execution,
                 "latency_ms": metrics_a.latency_ms,
-                "estimated_cost_usd": metrics_a.estimated_cost_usd,
+                "estimated_cost_usd": metrics_a.estimated_cost_usd if metrics_a.cost_status != "unavailable" else None,
+                "usage_complete": metrics_a.usage_complete,
+                "cost_status": metrics_a.cost_status,
             },
             "comparison": {
-                "token_reduction_percent": round(
-                    ((metrics_a.total_tokens - metrics_b.total_tokens) / max(metrics_a.total_tokens, 1)) * 100.0, 1
-                ),
-                "cost_reduction_percent": round(
-                    ((metrics_a.estimated_cost_usd - metrics_b.estimated_cost_usd) / max(metrics_a.estimated_cost_usd, 0.000001)) * 100.0, 1
-                ),
+                "token_reduction_percent": None,
+                "cost_reduction_percent": None,
+                "context_token_reduction_percent": round((packet_a.estimated_tokens - packet_b.estimated_tokens) / max(packet_a.estimated_tokens, 1) * 100, 1),
+                "comparison_semantics": "Packet-size diagnostic; provider cost/quality savings are not established.",
                 "expensive_call_avoided": (metrics_a.deep_reasoning_invoked and not metrics_b.deep_reasoning_invoked),
             },
         }
@@ -300,17 +302,17 @@ def evaluate_phase5(repository: GraphRepository, output_path: Path | None = None
         "aggregate_metrics": {
             "pipeline_a_full_context": {
                 "total_tokens": total_tokens_a,
-                "total_cost_usd": round(total_cost_a, 5),
+                "total_cost_usd": None,
                 "expensive_model_calls": expensive_calls_a,
             },
             "pipeline_b_memesis": {
                 "total_tokens": total_tokens_b,
-                "total_cost_usd": round(total_cost_b, 5),
+                "total_cost_usd": None,
                 "expensive_model_calls": expensive_calls_b,
             },
             "savings": {
-                "token_savings_percent": token_savings_pct,
-                "cost_savings_percent": cost_savings_pct,
+                "token_savings_percent": None,
+                "cost_savings_percent": None,
                 "expensive_calls_avoided": expensive_calls_a - expensive_calls_b,
             },
         },

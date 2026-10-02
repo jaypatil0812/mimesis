@@ -41,9 +41,16 @@ class MemoryReviewRequest(BaseModel):
 def list_memory_observations(request: Request,
                              review_state: Literal["proposed", "accepted", "rejected", "superseded"] | None = None,
                              entity_id: UUID | None = None, offset: int = Query(0, ge=0),
-                             limit: int = Query(100, ge=1, le=500)):
+                             limit: int = Query(100, ge=1, le=500), market_id: UUID | None = None):
     from memesis.knowledge.memory import observation_dict
     records = _get_repo(request).list_memory_assertions(review_state)
+    if market_id is not None:
+        repo = _get_repo(request)
+        market = repo.get_node(market_id)
+        if market is None or market.node_type != NodeType.MARKET:
+            raise HTTPException(404, "Market not found")
+        allowed = {e.id for e in ScopedGraphRepository(repo, QueryScope(market_id=market_id)).list_evidence()}
+        records = [r for r in records if set(r.provenance.evidence_ids) <= allowed]
     if entity_id:
         records = [r for r in records if r.subject_id == entity_id or r.object_value.get("target_id") == str(entity_id)]
     return {"total": len(records), "offset": offset, "observations": [observation_dict(r, _get_repo(request)) for r in records[offset:offset + limit]]}
@@ -68,7 +75,7 @@ def propose_memory_observation(request: Request, proposal: MemoryProposalRequest
             proposal.observation_type, proposal.start, proposal.end, subject_key="subject",
             context={**proposal.context, "target_key": "target"}, confidence=1.0,
         ), {"subject": subject, "target": target}, extraction_method=ExtractionMethod.ANALYST)
-        return observation_dict(record)
+        return observation_dict(record, _get_repo(request))
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
 
@@ -78,7 +85,9 @@ def review_memory_observation(request: Request, observation_id: UUID, review: Me
     from memesis.knowledge.memory import observation_dict
     try:
         record = _get_repo(request).review_memory_assertion(observation_id, review.state, review.reviewer, review.note)
-        return observation_dict(record)
+        from memesis.investigations.store import InvestigationStore
+        InvestigationStore(_get_repo(request).session_factory).invalidate_evidence(record.provenance.evidence_ids, "review:" + str(record.id))
+        return observation_dict(record, _get_repo(request))
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
 
@@ -356,8 +365,8 @@ def ask_market(request: Request, market_id: UUID, req: AskRequest) -> dict[str, 
         {
             "analogue": a.analogue,
             "time_lag_observed": a.time_lag_observed,
-            "similarity_confidence": round(a.similarity_confidence, 2),
-            "similarity_semantics": "heuristic structural match score; not a probability of historical equivalence",
+            "similarity_confidence": a.similarity_confidence,
+            "similarity_semantics": "No calibrated historical match probability has been measured.",
             "similarities": a.similarities,
             "differences": a.differences,
             "current_evidence_ids": [
@@ -373,7 +382,9 @@ def ask_market(request: Request, market_id: UUID, req: AskRequest) -> dict[str, 
                 for evidence_id in a.current_evidence_ids
                 if evidence_id in evidence_by_id
             ],
-            "historical_basis_status": "curated_analogy_template_not_independently_sourced",
+            "historical_basis_status": a.historical_basis_status,
+            "historical_evidence_ids": a.historical_evidence_ids,
+            "historical_evidence": [evidence_by_id[eid] for eid in a.historical_evidence_ids if eid in evidence_by_id],
         }
         for a in output.historical_analogues
     ]
@@ -385,7 +396,7 @@ def ask_market(request: Request, market_id: UUID, req: AskRequest) -> dict[str, 
         "summary": output.summary,
         "fallback_status": output.fallback_status,
         "reasoning_execution": output.reasoning_execution,
-        "cost_semantics": "Illustrative cost using fixed benchmark rates, not a provider invoice. Token usage is provider-reported where available; missing usage is unavailable, not a free call.",
+        "cost_semantics": metrics.cost_semantics,
         "market_motion": packet.market_motion,
         "summary_trace": {
             "evidence_ids": output.summary_evidence_ids,
@@ -420,7 +431,10 @@ def ask_market(request: Request, market_id: UUID, req: AskRequest) -> dict[str, 
             "total_tokens": metrics.total_tokens,
             "cheap_tokens": metrics.cheap_model_tokens,
             "expensive_tokens": metrics.expensive_model_tokens,
-            "estimated_cost_usd": round(metrics.estimated_cost_usd, 6),
+            "estimated_cost_usd": metrics.estimated_cost_usd if metrics.cost_status != "unavailable" else None,
+            "usage_complete": metrics.usage_complete,
+            "cost_status": metrics.cost_status,
+            "provider_calls": metrics.provider_calls,
             "deep_reasoning_invoked": metrics.deep_reasoning_invoked,
             "jev_decisions": metrics.jev_decisions,
             "nodes_considered": metrics.nodes_considered,

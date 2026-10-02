@@ -23,8 +23,9 @@ import {
 } from "lucide-react";
 import { MarketSummary, MarketWorkspaceData, AskResponse } from "../lib/types";
 import { fetchMarkets, fetchMarketWorkspace, askMarket } from "../lib/api";
+import ResearchWorkspace from "./ResearchWorkspace";
 
-type TabKey = "overview" | "people" | "beliefs" | "companies" | "timeline" | "graph" | "ask";
+type TabKey = "overview" | "people" | "beliefs" | "companies" | "timeline" | "graph" | "ask" | "research";
 
 export default function MarketWorkspace() {
   const [markets, setMarkets] = useState<MarketSummary[]>([]);
@@ -35,7 +36,7 @@ export default function MarketWorkspace() {
   const [error, setError] = useState<string | null>(null);
 
   // Ask Memesis state
-  const [question, setQuestion] = useState<string>("Is model routing replacing single frontier models in production?");
+  const [question, setQuestion] = useState<string>("What changed, what contradicts it, and what should we investigate next?");
   const [askLoading, setAskLoading] = useState<boolean>(false);
   const [askResult, setAskResult] = useState<AskResponse | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
@@ -89,6 +90,7 @@ export default function MarketWorkspace() {
     { key: "timeline", label: "Timeline", icon: <Clock className="w-4 h-4 mr-2" /> },
     { key: "graph", label: "Graph", icon: <Share2 className="w-4 h-4 mr-2" /> },
     { key: "ask", label: "Ask Memesis", icon: <HelpCircle className="w-4 h-4 mr-2" /> },
+    { key: "research", label: "Investigations & review", icon: <Search className="w-4 h-4 mr-2" /> },
   ];
 
   return (
@@ -181,6 +183,7 @@ export default function MarketWorkspace() {
         </div>
 
         {/* Tab Views */}
+        {activeTab === "research" && <ResearchWorkspace marketId={selectedMarketId} />}
         {loading && !data ? (
           <div className="py-20 text-center text-zinc-500">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-4"></div>
@@ -479,7 +482,8 @@ export default function MarketWorkspace() {
                           <span>•</span>
                           <span>Latency: {askResult.metrics.latency_ms}ms</span>
                           <span>•</span>
-                          <span>Tokens: {askResult.reasoning_execution?.usage_source === "unavailable" ? "unavailable" : askResult.metrics.total_tokens}</span>
+                          <span>Reported tokens: {askResult.metrics.total_tokens}{askResult.metrics.usage_complete === false ? " (incomplete)" : ""}</span>
+                          <span>Estimated cost: {askResult.metrics.estimated_cost_usd == null ? "unavailable" : "$" + askResult.metrics.estimated_cost_usd.toFixed(6)}</span>
                         </div>
                       </div>
                       <p className="text-zinc-100 font-medium leading-relaxed">{askResult.summary}</p>
@@ -559,7 +563,7 @@ export default function MarketWorkspace() {
                               <div className="flex justify-between items-start mb-2">
                                 <span className="font-semibold text-blue-300 text-sm">{h.analogue}</span>
                                 <span className="text-xs font-mono text-zinc-400 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700">
-                                  Match: {(h.similarity_confidence * 100).toFixed(0)}%
+                                  Historical comparison; predictive match probability unmeasured
                                 </span>
                               </div>
                               <p className="text-xs text-zinc-400 mb-2 font-mono">{h.time_lag_observed}</p>

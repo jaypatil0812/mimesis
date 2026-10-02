@@ -4,7 +4,7 @@
 
 ### Evidence-Bound Market Intelligence & Provenance Graph
 
-[![Tests](https://img.shields.io/badge/Tests-52%20Passing-emerald?style=flat-square&logo=pytest)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-Source%20suite-blue?style=flat-square&logo=pytest)](tests/)
 [![Python](https://img.shields.io/badge/Python-3.12+-blue?style=flat-square&logo=python)](pyproject.toml)
 [![Frontend](https://img.shields.io/badge/Frontend-Next.js%2014%20%7C%20Tailwind-black?style=flat-square&logo=next.js)](frontend/)
 [![Architecture](https://img.shields.io/badge/Architecture-Provenance--First-purple?style=flat-square)](docs/ARCHITECTURE.md)
@@ -22,6 +22,12 @@
 [Adversarial Hardening](#-adversarial-testing)
 
 </div>
+
+## Reliable connected memory update
+
+The [current implementation guide](docs/RELIABLE_MARKET_INTELLIGENCE.md) covers query-dependent relevance, reviewable perception candidates, sourced historical comparisons, repeated webpage collection, provider usage accounting and the **Investigations & review** interface. Fixed market reports and unsupported provider savings claims have been withdrawn.
+
+Draft diagnostic cases cover batteries, agriculture, industrial heat and insufficient evidence. Human semantic review and customer validation remain pending. Model configuration and a separately running worker are required for live strategic reasoning and continuous collection.
 
 ---
 
@@ -146,7 +152,8 @@ uv sync
 
 # Configure local development environment
 cp .env.example .env
-# Default points to pre-seeded SQLite database: memesis-phase5.sqlite3
+# .env.example defaults to PostgreSQL. For the seeded local preview, set:
+# MEMESIS_DATABASE_URL=sqlite:///./memesis-phase5.sqlite3
 
 # Check system health
 uv run memesis health

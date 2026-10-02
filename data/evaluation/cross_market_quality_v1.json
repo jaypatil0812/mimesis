@@ -1,0 +1,40 @@
+{
+  "version": "cross-market-quality-v1-draft",
+  "cases": [
+    {
+      "id": "battery_chemistry_scope", "tags": ["batteries", "negation", "shared_scope"], "origin": "synthetic_adversarial",
+      "question": "Is battery recycling universally getting cheaper?", "decision": "Whether to assume cost reductions for every battery chemistry",
+      "expected_answer_kind": "disagreement", "assessment_notes": ["Preserve both outcomes, chemistry differences and the same-pilot restriction. No universal industry conclusion follows."],
+      "documents": [{"id": "battery-pilot", "text": "Recycling costs declined for nickel-rich batteries but did not decline for lithium-iron-phosphate batteries in the same pilot.", "source_type": "github", "metadata": {"author_handle": "pilot-researcher", "author_github_id": 7101}}],
+      "required_documents": ["battery-pilot"]
+    },
+    {
+      "id": "irrigation_counterevidence", "tags": ["agriculture", "counterevidence", "conditions"], "origin": "synthetic_adversarial",
+      "question": "Should every farm adopt precision irrigation?", "decision": "Whether to recommend a universal rollout",
+      "expected_answer_kind": "unexpected_explanation", "assessment_notes": ["Keep crop, soil and trial conditions separate. Water savings are not evidence of better yield or commercial return."],
+      "documents": [{"id": "irrigation-1", "text": "Precision irrigation reduced water use for tomatoes in our sandy-soil trial without reducing yield.", "source_type": "github", "metadata": {"author_handle": "farm-a", "author_github_id": 7102}}, {"id": "irrigation-2", "text": "Precision irrigation did not reduce water use for wheat in our clay-soil trial and maintenance costs increased.", "source_type": "github", "metadata": {"author_handle": "farm-b", "author_github_id": 7103}}],
+      "required_documents": ["irrigation-1", "irrigation-2"]
+    },
+    {
+      "id": "heat_marketing_versus_experience", "tags": ["industrial_heat", "quotation", "perceptions", "multiple_products"], "origin": "synthetic_adversarial",
+      "question": "Does the operator endorse both products for high-temperature processes?", "decision": "Whether to recommend replacement of a high-temperature boiler",
+      "expected_answer_kind": "disagreement", "assessment_notes": ["Quoted marketing is not endorsement. The operator's experience differs by product and temperature requirement."],
+      "documents": [{"id": "heat-1", "text": "The vendor says \"Therma is always cheaper\". I reject that claim for high-temperature processes. We used Therma below 120 degrees, but FurnaceMax was still required above 200 degrees.", "source_type": "github", "metadata": {"author_handle": "plant-operator", "author_github_id": 7104}}],
+      "required_documents": ["heat-1"]
+    },
+    {
+      "id": "next_big_thing_missing_evidence", "tags": ["forecast", "insufficient_evidence"], "origin": "synthetic_adversarial",
+      "question": "What's the next big thing?", "decision": "Whether to commit capital to a predicted market winner",
+      "expected_answer_kind": "insufficient_evidence", "assessment_notes": ["An announcement without adoption, customer demand, costs or counterevidence cannot establish a winning market. Report what must be investigated next."],
+      "documents": [{"id": "announcement", "text": "The company announced a new product. No deployment results, customer usage or pricing data were provided.", "metadata": {"author_handle": "announcement-account"}}],
+      "required_documents": ["announcement"]
+    },
+    {
+      "id": "empty_memory_no_opportunity", "tags": ["empty_memory", "insufficient_evidence"], "origin": "synthetic_adversarial",
+      "question": "What is the strongest opportunity in this market?", "decision": "Whether to claim an opportunity without collected evidence",
+      "expected_answer_kind": "insufficient_evidence", "assessment_notes": ["The deliberately unavailable source must appear as a collection gap; no winning trend or sourced historical analogy may be invented."],
+      "documents": [{"id": "not-collected", "text": "This source was not collected and must not enter the graph.", "captured": false}],
+      "required_documents": ["not-collected"]
+    }
+  ]
+}

@@ -181,7 +181,7 @@ class PipelineOptimizer:
             BenchmarkComparison("Latency (Wall Clock)", f"{base_time:.2f} ms", f"{opt_time:.2f} ms", time_diff),
             BenchmarkComparison("Database Queries", str(base_q), str(opt_q), q_diff),
             BenchmarkComparison("Total Tokens", str(baseline.pipeline_b_tokens), str(optimized.pipeline_b_tokens), "0.0% (Deterministic)"),
-            BenchmarkComparison("LLM Cost ($)", f"${baseline.total_llm_cost_usd:.6f}", f"${optimized.total_llm_cost_usd:.6f}", "$0.00"),
+            BenchmarkComparison("Estimated LLM Cost ($)", f"${baseline.total_llm_cost_usd:.6f}" if baseline.cost_status != "unavailable" else "unavailable", f"${optimized.total_llm_cost_usd:.6f}" if optimized.cost_status != "unavailable" else "unavailable", "not established"),
             BenchmarkComparison("Cache Hit Rate", f"{baseline.cache_hit_pct}%", f"{optimized.cache_hit_pct}%", f"+{optimized.cache_hit_pct - baseline.cache_hit_pct}%"),
             BenchmarkComparison("Quality Regression", "Baseline", quality.verdict, "Verified Identical"),
         ]

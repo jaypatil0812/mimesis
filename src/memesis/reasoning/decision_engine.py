@@ -16,6 +16,7 @@ import urllib.request
 from pydantic import BaseModel, Field
 
 from memesis.config import settings
+from memesis.retrieval.relevance import overlap, terms
 
 
 class DecisionPrimitive(str, Enum):
@@ -48,7 +49,7 @@ class DecisionType(str, Enum):
 
 STANDARD_ALLOWED_OUTPUTS: dict[DecisionType, list[str]] = {
     DecisionType.CONTENT_RELEVANCE: ["RELEVANT", "IRRELEVANT", "UNCERTAIN"],
-    DecisionType.RELEVANCE: ["RELEVANT", "IRRELEVANT"],
+    DecisionType.RELEVANCE: ["RELEVANT", "IRRELEVANT", "UNCERTAIN"],
     DecisionType.EVIDENCE_RELATION: ["SUPPORT", "CONTRADICT", "MENTION", "NEITHER"],
     DecisionType.STANCE: ["SUPPORTS", "CONTRADICTS", "NEUTRAL"],
     DecisionType.BELIEF_EQUIVALENCE: ["SAME", "RELATED", "DIFFERENT", "UNCERTAIN"],
@@ -135,9 +136,9 @@ def _assign_confidence_bucket(prob: float) -> str:
 
 
 class HeuristicDecisionEngine:
-    """Fast, deterministic, rule-based typed evaluator representing Jev heuristics."""
+    """Local deterministic hints, not model inference or calibrated truth scores."""
 
-    VERSION = "jev-heuristic-v0.2"
+    VERSION = "market-neutral-heuristic-v1"
 
     def evaluate(
         self,
@@ -179,7 +180,7 @@ class HeuristicDecisionEngine:
         latency_ms = (time.perf_counter() - start_t) * 1000.0
         context_str = json.dumps(context, sort_keys=True, default=str)
         input_hash = hashlib.sha256(context_str.encode()).hexdigest()
-        input_tokens = max(len(context_str) // 4, 1)
+        input_tokens = 0  # Local heuristics do not consume provider tokens.
 
         return DecisionResult(
             decision_type=decision_type,
@@ -205,67 +206,16 @@ class HeuristicDecisionEngine:
     def _eval_relevance(
         self, ctx: dict[str, Any], allowed: list[str]
     ) -> tuple[str, float, dict[str, Any], dict[str, float]]:
-        query = str(ctx.get("query", "")).lower()
-        text = str(ctx.get("text", "")).lower()
-        node_name = str(ctx.get("node_name", "")).lower()
-        combined = f"{text} {node_name}"
+        return self._query_relevance(ctx, allowed)
 
-        tokens = [
-            t
-            for t in re.findall(r"\w+", query)
-            if len(t) > 2
-            and t not in {"the", "and", "are", "what", "which", "who", "about", "for", "with"}
-        ]
-        matches = [
-            t
-            for t in tokens
-            if t in combined
-            or any(t.startswith(part) or part.startswith(t) for part in re.findall(r"\w+", combined))
-        ]
-
-        topic_terms = [
-            "small",
-            "model",
-            "specialized",
-            "inference",
-            "cost",
-            "routing",
-            "latency",
-            "router",
-            "quantiz",
-            "distill",
-            "slm",
-            "vllm",
-            "ollama",
-            "groq",
-            "together",
-            "mistral",
-            "phi",
-        ]
-        topic_match = any(term in combined for term in topic_terms)
-
-        if matches and topic_match:
-            prob = min(0.65 + 0.1 * len(matches), 0.98)
-            decision = "RELEVANT"
-            dist = {"RELEVANT": prob, "IRRELEVANT": round(1.0 - prob, 3)}
-        elif topic_match:
-            prob = 0.82
-            decision = "RELEVANT"
-            dist = {"RELEVANT": 0.82, "IRRELEVANT": 0.18}
-        elif matches:
-            prob = 0.65
-            decision = "UNCERTAIN" if "UNCERTAIN" in allowed else "RELEVANT"
-            dist = (
-                {"UNCERTAIN": 0.65, "RELEVANT": 0.20, "IRRELEVANT": 0.15}
-                if "UNCERTAIN" in allowed
-                else {"RELEVANT": 0.65, "IRRELEVANT": 0.35}
-            )
-        else:
-            prob = 0.92
-            decision = "IRRELEVANT"
-            dist = {"IRRELEVANT": 0.92, "RELEVANT": 0.08}
-
-        return decision, prob, {"matched_tokens": matches, "topic_match": topic_match}, dist
+    def _query_relevance(self, ctx, allowed):
+        text = f"{ctx.get('text', '')} {ctx.get('node_name', '')}"
+        score = overlap(ctx.get("query", ""), text)
+        supported_path = bool(ctx.get("supported_path"))
+        decision = "RELEVANT" if score or supported_path else ("UNCERTAIN" if "UNCERTAIN" in allowed else "RELEVANT")
+        probability = min(0.55 + score * 0.25, 0.8) if score else 0.5
+        return decision, probability, {"basis": "query_overlap_hint_not_semantic_proof", "overlap": score,
+            "supported_path": supported_path}, {decision: probability}
 
     def _eval_content_relevance(
         self, ctx: dict[str, Any], allowed: list[str]
@@ -284,33 +234,12 @@ class HeuristicDecisionEngine:
             elif explicit == "qualifies":
                 return "NEUTRAL", 0.85, {"source": "explicit_stance"}, {"NEUTRAL": 0.85, "SUPPORTS": 0.08, "CONTRADICTS": 0.07}
 
-        text = str(ctx.get("text", "")).lower()
-        if re.search(
-            r"\b(will not|cannot replace|not replace|never replace|fails to|disagree|contradicts|false|inferior|flawed)\b",
-            text,
-        ):
-            return "CONTRADICTS", 0.92, {"rule": "negation_pattern"}, {"CONTRADICTS": 0.92, "SUPPORTS": 0.04, "NEUTRAL": 0.04}
-        if re.search(
-            r"\b(will replace|replaces|reduce[sd]?\s+\w+\s+cost|reduce[sd]?\s+cost|reduce[sd]?\s+inference|gain share|more efficient|adopt|cheaper|faster|enable|task.specific|specialized)\b",
-            text,
-        ):
-            return "SUPPORTS", 0.90, {"rule": "affirmation_pattern"}, {"SUPPORTS": 0.90, "CONTRADICTS": 0.05, "NEUTRAL": 0.05}
-        return "NEUTRAL", 0.70, {"rule": "neutral_fallback"}, {"NEUTRAL": 0.70, "SUPPORTS": 0.15, "CONTRADICTS": 0.15}
+        return "NEUTRAL", 0.5, {"requires_semantic_review": True}, {"NEUTRAL": 0.5}
 
-    def _eval_evidence_relation(
-        self, ctx: dict[str, Any], allowed: list[str]
-    ) -> tuple[str, float, dict[str, Any], dict[str, float]]:
-        stance, prob, meta, _ = self._eval_stance(ctx, ["SUPPORTS", "CONTRADICTS", "NEUTRAL"])
-        mapping = {
-            "SUPPORTS": "SUPPORT",
-            "CONTRADICTS": "CONTRADICT",
-            "NEUTRAL": "MENTION",
-        }
-        dec = mapping.get(stance, "NEITHER")
-        if dec not in allowed:
-            dec = allowed[0]
-        dist = {opt: (prob if opt == dec else round((1.0 - prob) / max(len(allowed) - 1, 1), 3)) for opt in allowed}
-        return dec, prob, meta, dist
+    def _eval_evidence_relation(self, ctx, allowed):
+        stance = ctx.get("explicit_stance")
+        decision = {"supports": "SUPPORT", "opposes": "CONTRADICT", "mentions": "MENTION", "qualifies": "MENTION"}.get(stance, "MENTION" if overlap(ctx.get("belief", ""), ctx.get("text", "")) else "NEITHER")
+        return decision, 0.5, {"requires_semantic_review": stance is None}, {decision: 0.5}
 
     def _eval_belief_equivalence(
         self, ctx: dict[str, Any], allowed: list[str]
@@ -326,10 +255,7 @@ class HeuristicDecisionEngine:
         tokens_b = set(re.findall(r"\w+", prop_b))
         jaccard = len(tokens_a & tokens_b) / max(len(tokens_a | tokens_b), 1)
 
-        if jaccard > 0.75:
-            dec = "SAME" if "SAME" in allowed else "SAME_BELIEF"
-            prob = round(jaccard, 2)
-        elif jaccard > 0.40:
+        if jaccard > 0.40:
             dec = "RELATED" if "RELATED" in allowed else "UNCERTAIN"
             prob = 0.75
         elif jaccard < 0.20:
@@ -469,17 +395,10 @@ class HeuristicDecisionEngine:
         dist = {opt: (prob if opt == dec else round((1.0 - prob) / max(len(allowed) - 1, 1), 3)) for opt in allowed}
         return dec, prob, {"subtype": subtype}, dist
 
-    def _eval_company_action_relevance(
-        self, ctx: dict[str, Any], allowed: list[str]
-    ) -> tuple[str, float, dict[str, Any], dict[str, float]]:
-        text = str(ctx.get("text", "")).lower()
-        belief = str(ctx.get("belief", "")).lower()
-        if any(w in text for w in ["inference", "serving", "slm", "small", "specialized", "distill", "quantize"]):
-            dec, prob = "YES", 0.91
-        else:
-            dec, prob = "NO", 0.85
-        dist = {"YES": prob if dec == "YES" else 1.0 - prob, "NO": prob if dec == "NO" else 1.0 - prob}
-        return dec, prob, {}, dist
+    def _eval_company_action_relevance(self, ctx, allowed):
+        matched = overlap(ctx.get("belief", ctx.get("query", "")), ctx.get("text", ""))
+        decision = "YES" if matched else "NO"
+        return decision, 0.5, {"basis": "lexical_hint_requires_semantic_review"}, {decision: 0.5}
 
     def _eval_perception_category(
         self, ctx: dict[str, Any], allowed: list[str]
@@ -526,22 +445,9 @@ class HeuristicDecisionEngine:
         dist = {opt: (prob if opt == dec else round((1.0 - prob) / max(len(allowed) - 1, 1), 3)) for opt in allowed}
         return dec, prob, {}, dist
 
-    def _eval_claim_support(
-        self, ctx: dict[str, Any], allowed: list[str]
-    ) -> tuple[str, float, dict[str, Any], dict[str, float]]:
-        claim = str(ctx.get("claim", "")).lower()
-        evidence_text = str(ctx.get("evidence_text", "")).lower()
-
-        claim_words = set(re.findall(r"\w+", claim)) - {"the", "and", "is", "in", "to", "of", "a", "that"}
-        evidence_words = set(re.findall(r"\w+", evidence_text))
-
-        overlap = len(claim_words & evidence_words) / max(len(claim_words), 1)
-        if overlap >= 0.40:
-            dec, prob = "YES", min(0.65 + overlap * 0.4, 0.98)
-        else:
-            dec, prob = "NO", 0.85
-        dist = {"YES": prob if dec == "YES" else 1.0 - prob, "NO": prob if dec == "NO" else 1.0 - prob}
-        return dec, prob, {"overlap": overlap}, dist
+    def _eval_claim_support(self, ctx, allowed):
+        # Rules cannot establish entailment from shared words.
+        return "NO", 0.5, {"requires_semantic_review": True, "meaning": "support_not_established_by_rules"}, {"NO": 0.5}
 
 
 class TypeSafeJevDecisionEngine:
@@ -551,7 +457,7 @@ class TypeSafeJevDecisionEngine:
     - Official /v1/systemone endpoint support
     - Native Jev primitives: CHOICE, SCORE, NOUL
     - Fallback to OpenRouter (typesafe-ai/jev-1.13) when configured
-    - Offline calibrated fallback when API keys are absent
+    - Explicit local rule fallback when API keys are absent; no model emulation
     - Full telemetry: probability distributions, confidence, input tokens, latency, cost ($0.042/M tokens)
     """
 
@@ -566,7 +472,7 @@ class TypeSafeJevDecisionEngine:
     ) -> None:
         self.api_key = api_key or settings.typesafe_api_key or os.getenv("TYPESAFE_API_KEY")
         self.base_url = (base_url or settings.typesafe_base_url).rstrip("/")
-        self.model = model or settings.typesafe_model or "jev-1.13"
+        self.model = model or settings.typesafe_model or "jev-latest"
         self.openrouter_api_key = openrouter_api_key or settings.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
         self._heuristic_fallback = HeuristicDecisionEngine()
 
@@ -588,19 +494,22 @@ class TypeSafeJevDecisionEngine:
         input_hash = hashlib.sha256(context_str.encode()).hexdigest()
         input_tokens = max(len(context_str) // 4, 1)
 
+        self.request_receipts = []
         # 1. Attempt Official TypeSafe API
         if self.api_key:
             res = self._call_typesafe_api(decision_type, context, allowed, primitive, input_tokens)
             if res:
+                res.metadata["request_receipts"] = list(self.request_receipts)
                 return res
 
         # 2. Attempt OpenRouter Jev fallback
         if self.openrouter_api_key:
             res = self._call_openrouter_api(decision_type, context, allowed, primitive, input_tokens)
             if res:
+                res.metadata["request_receipts"] = list(self.request_receipts)
                 return res
 
-        # 3. High-fidelity Offline Calibrated Jev Engine
+        # 3. Explicit local fallback; no proprietary model emulation.
         dec, prob, meta, dist = self._jev_systemone_eval(decision_type, context, allowed)
         latency_ms = (time.perf_counter() - start_t) * 1000.0
 
@@ -625,8 +534,9 @@ class TypeSafeJevDecisionEngine:
             metadata={
                 "primitive": primitive.value,
                 "allowed_outputs": allowed,
-                "offline_calibrated": True,
+                "offline_calibrated": False,
                 "execution_mode": "simulation",
+                "request_receipts": list(self.request_receipts),
                 "provider_call_attempted": bool(self.api_key or self.openrouter_api_key),
                 "provider_usage_available": False,
                 "latency_semantics": "measured local fallback including attempted requests; not Jev inference latency",
@@ -634,239 +544,80 @@ class TypeSafeJevDecisionEngine:
             },
         )
 
-    def _jev_systemone_eval(
-        self, decision_type: DecisionType, ctx: dict[str, Any], allowed: list[str]
-    ) -> tuple[str, float, dict[str, Any], dict[str, float]]:
-        """Calibrated System One decision classifier mirroring Jev 1.13 weights."""
-        text = str(ctx.get("text", "")).lower()
+    def _jev_systemone_eval(self, decision_type, ctx, allowed):
+        """Local fallback; never claim to approximate proprietary model weights."""
+        result = self._heuristic_fallback.evaluate(decision_type, ctx, allowed)
+        return result.decision, result.probability, {"basis": "local_rules_not_model_inference"}, result.probability_distribution
 
-        if decision_type in (DecisionType.CONTENT_RELEVANCE, DecisionType.RELEVANCE):
-            query = str(ctx.get("query", "")).lower()
-            combined = f"{text} {str(ctx.get('node_name', '')).lower()}"
-            if "hybrid cloud" in combined or "stabilizing" in combined:
-                dec, prob = "UNCERTAIN" if "UNCERTAIN" in allowed else "RELEVANT", 0.72
-            elif any(k in combined for k in ["vllm", "mistral", "ollama", "speculative", "groq", "quantiz", "small language"]):
-                dec, prob = "RELEVANT", 0.94
-            elif any(k in combined for k in ["spacex", "final cut pro", "postgresql", "federal reserve"]):
-                dec, prob = "IRRELEVANT", 0.96
-            else:
-                dec, prob = "RELEVANT" if "ai" in combined else "IRRELEVANT", 0.80
+    def _call_typesafe_api(self, decision_type, context, allowed, primitive, input_tokens):
+        instructions = {
+            DecisionType.RELEVANCE: "Does this record help answer the question, through direct evidence, counterevidence or a supported connecting path? No market is intrinsically relevant. Missing lexical overlap is not irrelevance.",
+            DecisionType.CONTENT_RELEVANCE: "Does this content bear on the question, including contradictions, conditions and adjacent supported relationships?",
+            DecisionType.BELIEF_EQUIVALENCE: "Compare complete propositions including subjects, negation, attribution, conditions and time. Shared vocabulary alone is not equivalence.",
+            DecisionType.CLAIM_SUPPORT: "Does the cited evidence actually support the complete claim, preserving negation, scope and attribution? Citation existence is insufficient.",
+            DecisionType.PERCEPTION_TYPE: "Classify only the attributable customer experience. Quotations and company marketing are not the author's experience.",
+        }.get(decision_type, f"Evaluate {decision_type.value} using supplied state only. Preserve uncertainty, attribution, negation and conditions; do not infer causality from timing.")
+        # Choice preserves the existing named application contract, including YES/NO labels.
+        payload = {"model": self.model, "state": context, "questions": {"decision": {
+            "type": "choice", "instructions": instructions,
+            "criteria": {option: ("Insufficient evidence or ambiguous meaning" if option in {"UNCERTAIN", "UNKNOWN"} else option.replace("_", " ")) for option in allowed}}}}
+        return self._request_decision(self.base_url.rstrip("/") + "/v1/systemone", self.api_key,
+            payload, decision_type, context, allowed, typesafe=True)
 
-        elif decision_type in (DecisionType.EVIDENCE_RELATION, DecisionType.STANCE):
-            belief = str(ctx.get("belief", "")).lower()
-            if any(w in text for w in ["cannot replace", "degrades precision so severely", "never replace", "fails completely"]):
-                dec, prob = "CONTRADICT" if "CONTRADICT" in allowed else "CONTRADICTS", 0.93
-            elif any(w in text for w in ["cutting costs", "identical perplexity", "cost reduction without quality loss", "520 tokens/sec", "moved from gpt-4 to"]):
-                dec, prob = "SUPPORT" if "SUPPORT" in allowed else "SUPPORTS", 0.94
-            elif any(w in text for w in ["compared", "varying inference trade-offs", "evaluating"]):
-                dec, prob = "MENTION" if "MENTION" in allowed else "NEUTRAL", 0.85
-            elif any(w in text for w in ["weather forecast", "rental", "increased 15%", "macroeconomic"]):
-                dec, prob = "NEITHER" if "NEITHER" in allowed else "NEUTRAL", 0.91
-            else:
-                dec, prob = "MENTION" if "MENTION" in allowed else "NEUTRAL", 0.75
+    def _call_openrouter_api(self, decision_type, context, allowed, primitive, input_tokens):
+        payload = {"model": "typesafe-ai/jev-1.13", "temperature": 0,
+            "messages": [{"role": "user", "content": json.dumps({"task": decision_type.value,
+                "instructions": "Judge only supplied evidence. Preserve scope, negation and attribution. No domain is inherently relevant. Missing keyword overlap does not disprove a supported connection. Return decision from allowed options and probability; use UNCERTAIN when available and unsupported.",
+                "context": context, "allowed": allowed,
+                "output": {"decision": "allowed option", "probability": "number 0..1"}})}]}
+        return self._request_decision("https://openrouter.ai/api/v1/chat/completions", self.openrouter_api_key,
+            payload, decision_type, context, allowed, typesafe=False)
 
-        elif decision_type in (DecisionType.PERCEPTION_TYPE, DecisionType.PERCEPTION_CATEGORY):
-            if any(w in text for w in ["over budget", "bill hit", "expensive", "$42,000", "cost per token"]):
-                dec, prob = "PRICE_SENSITIVITY", 0.96
-            elif any(w in text for w in ["time to first token", "stutter", "latency is", "tokens/sec", "throughput"]):
-                dec, prob = "PERFORMANCE", 0.95
-            elif any(w in text for w in ["crashes", "throws cuda", "out of memory", "buggy", "frustrating"]):
-                dec, prob = "PAIN", 0.93
-            elif any(w in text for w in ["moved from", "migrated from", "self-hosting", "switched"]):
-                dec, prob = "SWITCHING_INTENT", 0.92
-            elif any(w in text for w in ["please add", "wish", "rfc", "support for structured"]):
-                dec, prob = "FEATURE_REQUEST", 0.91
-            elif any(w in text for w in ["hipaa", "privacy laws", "cannot send medical", "compliance", "trust"]):
-                dec, prob = "TRUST", 0.94
-            elif any(w in text for w in ["effortless", "one command", "easy to setup", "smooth"]):
-                dec, prob = "USABILITY", 0.95
-            elif any(w in text for w in ["jaw-droppingly fast", "incredible", "love", "amazing"]):
-                dec, prob = "PRAISE", 0.95
-            elif any(w in text for w in ["synthetic test data", "metadata extraction", "use the 3b model primarily for"]):
-                dec, prob = "USE_CASE", 0.92
-            else:
-                dec, prob = "OTHER", 0.88
-
-        elif decision_type == DecisionType.CLAIM_SUPPORT:
-            claim = str(ctx.get("claim", "")).lower()
-            ev_text = str(ctx.get("evidence_text", "")).lower()
-            if "acquired by microsoft" in claim and "partnership" in ev_text:
-                dec, prob = "NO", 0.95
-            elif "exclusively designed for windows" in claim and "apple silicon" in ev_text:
-                dec, prob = "NO", 0.96
-            elif "stock dropped to zero" in claim and "record quarterly revenue" in ev_text:
-                dec, prob = "NO", 0.98
-            elif "completely eliminated hallucinations" in claim and "hallucinations remain" in ev_text:
-                dec, prob = "NO", 0.94
-            elif "flawlessly solve" in claim and "limitations on novel" in ev_text:
-                dec, prob = "NO", 0.95
-            elif any(k in claim and k in ev_text for k in ["pagedattention", "sram", "quantized", "speculative decoding", "task complexity"]):
-                dec, prob = "YES", 0.93
-            else:
-                dec, prob = "NO", 0.80
-
-        elif decision_type == DecisionType.BELIEF_EQUIVALENCE:
-            prop_a = str(ctx.get("proposition_a", "")).lower()
-            prop_b = str(ctx.get("proposition_b", "")).lower()
-            if prop_a == prop_b:
-                dec, prob = "SAME", 1.0
-            elif "routing" in prop_a and "quantization" in prop_b:
-                dec, prob = "DIFFERENT", 0.95
-            elif "privacy" in prop_a and "pricing" in prop_b:
-                dec, prob = "DIFFERENT", 0.95
-            elif "groq" in prop_a and "solar" in prop_b:
-                dec, prob = "DIFFERENT", 0.98
-            elif "speculative decoding" in prop_a and "speculative decoding" in prop_b:
-                dec, prob = "SAME", 0.91
-            elif "specialized models" in prop_a and "specialized models" in prop_b:
-                dec, prob = "SAME", 0.92
-            elif "mixture of experts" in prop_a and "moe" in prop_b:
-                dec, prob = "SAME", 0.89
-            elif ("distilled" in prop_a and "small" in prop_b) or ("pagedattention" in prop_a and "memory" in prop_b) or ("lock-in" in prop_a and "lora" in prop_b):
-                dec, prob = "RELATED", 0.84
-            else:
-                dec, prob = "DIFFERENT", 0.80
-
-        else:
-            heur_res = self._heuristic_fallback.evaluate(decision_type, ctx, allowed)
-            dec, prob = heur_res.decision, heur_res.probability
-
-        if dec not in allowed:
-            dec = allowed[0]
-        dist = {opt: (prob if opt == dec else round((1.0 - prob) / max(len(allowed) - 1, 1), 3)) for opt in allowed}
-        return dec, prob, {"system_one_calibrated": True}, dist
-
-    def _call_typesafe_api(
-        self,
-        decision_type: DecisionType,
-        context: dict[str, Any],
-        allowed: list[str],
-        primitive: DecisionPrimitive,
-        input_tokens: int,
-    ) -> DecisionResult | None:
-        start_t = time.perf_counter()
-        url = f"{self.base_url}/v1/systemone"
-        payload = {
-            "model": self.model,
-            "primitive": primitive.value.lower(),
-            "decision_type": decision_type.value,
-            "input": context,
-            "options": allowed if primitive == DecisionPrimitive.CHOICE else None,
-        }
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "Memesis/0.1",
-            },
-            method="POST",
-        )
+    def _request_decision(self, url, key, payload, decision_type, context, allowed, *, typesafe):
+        started = time.perf_counter()
+        receipt = {"provider": "typesafe" if typesafe else "openrouter", "model": payload["model"],
+            "status": "failed", "usage_source": "unavailable", "input_tokens": 0, "output_tokens": 0}
+        self.request_receipts.append(receipt)
+        data = json.dumps(payload).encode()
+        request = urllib.request.Request(url, data=data, method="POST", headers={
+            "Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": "Memesis/0.1"})
         try:
-            with urllib.request.urlopen(req, timeout=10.0) as resp:
-                status = resp.status
-                if status == 200:
-                    body = json.loads(resp.read().decode("utf-8"))
-                    latency_ms = (time.perf_counter() - start_t) * 1000.0
-                    cost = (input_tokens / 1_000_000.0) * self.PRICE_PER_M_INPUT_TOKENS
-                    decision = str(body.get("decision", allowed[0]))
-                    prob = float(body.get("probability", 0.9))
-                    dist = body.get("distribution", {decision: prob})
-                    return DecisionResult(
-                        decision_type=decision_type,
-                        decision=decision,
-                        probability=prob,
-                        probability_distribution=dist,
-                        primitive=primitive,
-                        confidence=prob,
-                        confidence_bucket=_assign_confidence_bucket(prob),
-                        provider="typesafe",
-                        model=self.model,
-                        version=f"typesafe-{self.model}",
-                        input_hash=hashlib.sha256(json.dumps(context).encode()).hexdigest(),
-                        input_references=[str(r) for r in context.get("references", [])],
-                        latency_ms=round(latency_ms, 2),
-                        input_tokens=input_tokens,
-                        output_tokens=0,
-                        cost_estimate_usd=round(cost, 7),
-                        metadata={"raw": body, "execution_mode": "live", "provider_call_succeeded": True,
-                            "request_hash": hashlib.sha256(data).hexdigest(),
-                            "response_hash": hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest(),
-                            "allowed_outputs": allowed, "usage_source": "local_estimate", "cost_source": "price_assumption"},
-                    )
-        except Exception:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                body = json.loads(response.read().decode())
+            usage = body.get("usage") or {}
+            inp = usage.get("input_tokens" if typesafe else "prompt_tokens")
+            out = usage.get("output_tokens" if typesafe else "completion_tokens")
+            if type(inp) is int and type(out) is int and min(inp, out) >= 0:
+                receipt.update(input_tokens=inp, output_tokens=out, usage_source="provider_reported")
+            receipt.update(status="invalid_response", model=body.get("model", payload["model"]))
+            if typesafe:
+                answer = body["answers"]["decision"]
+                decision, distribution = answer["choice"], answer["probabilities"]
+                if set(distribution) != set(allowed) or any(type(v) not in (int, float) or not 0 <= v <= 1 for v in distribution.values()) or abs(sum(distribution.values()) - 1) > 0.02:
+                    raise ValueError("Invalid choice distribution")
+                probability = distribution[decision]
+                confidence = float(answer["confidence"])
+            else:
+                answer = json.loads(body["choices"][0]["message"]["content"])
+                decision, probability = answer["decision"], float(answer["probability"])
+                distribution, confidence = {decision: probability}, probability
+            if decision not in allowed or not 0 <= probability <= 1 or not 0 <= confidence <= 1:
+                raise ValueError("Provider decision violates contract")
+            receipt["status"] = "completed"
+            return DecisionResult(decision_type=decision_type, decision=decision, probability=probability,
+                probability_distribution=distribution, primitive=DecisionPrimitive.CHOICE, confidence=confidence,
+                confidence_bucket=_assign_confidence_bucket(confidence), provider=receipt["provider"],
+                model=receipt["model"], version="typed-decision-v1", input_hash=hashlib.sha256(json.dumps(context, sort_keys=True, default=str).encode()).hexdigest(),
+                input_references=list(map(str, context.get("references", []))), latency_ms=round((time.perf_counter()-started)*1000, 2),
+                input_tokens=receipt["input_tokens"], output_tokens=receipt["output_tokens"],
+                metadata={"execution_mode": "live", "provider_call_succeeded": True,
+                    "usage_source": receipt["usage_source"], "cost_source": "configured_rates_required",
+                    "request_hash": hashlib.sha256(data).hexdigest(), "response_hash": hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest(),
+                    "allowed_outputs": allowed})
+        except Exception as error:
+            receipt["error_type"] = type(error).__name__
             return None
-        return None
 
-    def _call_openrouter_api(
-        self,
-        decision_type: DecisionType,
-        context: dict[str, Any],
-        allowed: list[str],
-        primitive: DecisionPrimitive,
-        input_tokens: int,
-    ) -> DecisionResult | None:
-        start_t = time.perf_counter()
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        prompt = (
-            f"You are a bounded System One decision model. Decide on {decision_type.value}.\n"
-            f"Context: {json.dumps(context)}\n"
-            f"Allowed Options: {allowed}\n"
-            f"Return JSON strictly in format: {{\"decision\": \"<OPTION>\", \"probability\": <0.0-1.0>}}"
-        )
-        payload = {
-            "model": "typesafe-ai/jev-1.13",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0,
-        }
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=15.0) as resp:
-                if resp.status == 200:
-                    body = json.loads(resp.read().decode("utf-8"))
-                    content = body["choices"][0]["message"]["content"]
-                    parsed = json.loads(re.search(r"\{.*\}", content, re.DOTALL).group(0))
-                    decision = parsed.get("decision", allowed[0])
-                    prob = float(parsed.get("probability", 0.85))
-                    latency_ms = (time.perf_counter() - start_t) * 1000.0
-                    cost = (input_tokens / 1_000_000.0) * self.PRICE_PER_M_INPUT_TOKENS
-                    return DecisionResult(
-                        decision_type=decision_type,
-                        decision=decision,
-                        probability=prob,
-                        probability_distribution={decision: prob},
-                        primitive=primitive,
-                        confidence=prob,
-                        confidence_bucket=_assign_confidence_bucket(prob),
-                        provider="openrouter",
-                        model="typesafe-ai/jev-1.13",
-                        version="openrouter-jev-1.13",
-                        input_hash=hashlib.sha256(json.dumps(context).encode()).hexdigest(),
-                        input_references=[str(r) for r in context.get("references", [])],
-                        latency_ms=round(latency_ms, 2),
-                        input_tokens=body.get("usage", {}).get("prompt_tokens", input_tokens),
-                        output_tokens=body.get("usage", {}).get("completion_tokens", 0),
-                        cost_estimate_usd=round(cost, 7),
-                        metadata={"raw": parsed, "execution_mode": "live", "provider_call_succeeded": True,
-                            "request_hash": hashlib.sha256(data).hexdigest(),
-                            "response_hash": hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest(),
-                            "allowed_outputs": allowed, "usage_source": "provider_reported" if body.get("usage") else "unavailable",
-                            "cost_source": "price_assumption"},
-                    )
-        except Exception:
-            return None
-        return None
 
 
 class FrontierLLMDecisionEngine:
@@ -947,6 +698,8 @@ class HybridDecisionEngine:
         self.frontier = frontier_engine or FrontierLLMDecisionEngine()
         self.confidence_threshold = confidence_threshold
 
+    VERSION = "hybrid-market-neutral-v1"
+
     def evaluate(
         self,
         decision_type: DecisionType,
@@ -971,13 +724,8 @@ class HybridDecisionEngine:
         if jev_result.probability >= self.confidence_threshold:
             return jev_result
 
-        # If low confidence on critical decision (e.g. Belief Equivalence or Claim Support), escalate
-        critical_types = {DecisionType.BELIEF_EQUIVALENCE, DecisionType.CLAIM_SUPPORT}
-        if decision_type in critical_types:
-            escalated = self.frontier.evaluate(decision_type, context, allowed_outputs)
-            escalated.metadata["escalated_from_jev"] = True
-            escalated.metadata["jev_initial_probability"] = jev_result.probability
-            return escalated
+        # A simulator cannot repair uncertainty from an actual provider.
+        jev_result.metadata["needs_semantic_review"] = True
 
         return jev_result
 
@@ -991,6 +739,7 @@ class CachedDecisionEngine:
         self._memory_cache: dict[str, DecisionResult] = {}
         self.cache_hits = 0
         self.decisions_made = 0
+        self.usage_events: list[dict[str, Any]] = []
 
     def evaluate(
         self,
@@ -1009,7 +758,7 @@ class CachedDecisionEngine:
                     "jev_credentials_present": bool(getattr(getattr(self.engine, "jev", None), "api_key", None)
                         or getattr(getattr(self.engine, "jev", None), "openrouter_api_key", None))}
         contract = allowed_outputs or STANDARD_ALLOWED_OUTPUTS.get(decision_type, [])
-        cache_key = hashlib.sha256(json.dumps(["decision-cache-v2", decision_type.value, context_hash, identity, contract], sort_keys=True).encode()).hexdigest()
+        cache_key = hashlib.sha256(json.dumps(["decision-cache-v3-market-neutral", decision_type.value, context_hash, identity, contract], sort_keys=True).encode()).hexdigest()
 
         if cache_key in self._memory_cache:
             self.cache_hits += 1
@@ -1026,6 +775,12 @@ class CachedDecisionEngine:
 
         self.decisions_made += 1
         result = self.engine.evaluate(decision_type, context, allowed_outputs)
+        receipts = result.metadata.get("request_receipts", [])
+        if not receipts and result.metadata.get("execution_mode") == "live":
+            receipts = [{"provider": result.provider, "model": result.model,
+                "status": "completed", "usage_source": result.metadata.get("usage_source", "unavailable"),
+                "input_tokens": result.input_tokens, "output_tokens": result.output_tokens}]
+        self.usage_events.extend(dict(receipt) for receipt in receipts)
         self._memory_cache[cache_key] = result
 
         if self.repository and hasattr(self.repository, "save_decision_cache"):

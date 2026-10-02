@@ -140,7 +140,8 @@ class InvestigationService:
         for e in packet.primary_evidence_references:
             observations.append({"id": "source:" + e["id"], "statement": e["text"], "observation_type": "source_passage",
                 "evidence_ids": [e["id"]], "published_at": e.get("published_at"), "review_state": "source_record",
-                "source_family": e.get("source_family"), "source_type": e.get("source_type")})
+                "source_family": e.get("source_family"), "source_type": e.get("source_type"),
+                "source_url": e.get("source_url"), "retrieved_at": e.get("retrieved_at")})
         known = {o["id"] for o in observations}
         for p in packet.customer_public_perception:
             if p.get("id") and p["id"] not in known:

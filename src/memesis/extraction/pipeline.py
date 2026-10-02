@@ -19,9 +19,6 @@ from memesis.domain.schemas import (
     ExtractionMethod,
     GraphEdge,
     NodeType,
-    PerceptionDimension,
-    PerceptionObservation,
-    PerceptionStance,
     Provenance,
 )
 from memesis.extraction.contracts import (
@@ -348,111 +345,16 @@ class EvidenceGraphPipeline:
         if normalized is not None:
             report.memory_observations_processed += self.memory.process(evidence, normalized, resolved, result)
 
-    def _extract_and_record_perceptions(
-        self,
-        evidence: Evidence,
-        normalized_text: str,
-        resolved: dict[str, Any],
-    ) -> None:
-        import re
-
-        subjects = [
-            entity
-            for entity in resolved.values()
-            if getattr(entity, "node_type", None) in (NodeType.COMPANY, NodeType.PRODUCT, NodeType.MARKET)
-        ]
-        if not subjects:
+    def _extract_and_record_perceptions(self, evidence, normalized_text, resolved):
+        from memesis.extraction.perceptions import candidates, PERCEPTION_VERSION
+        normalized = self.repository.get_normalized_document_for_version(evidence.document_version_id)
+        if normalized is None:
             return
-
-        sentences = [s.strip() for s in re.split(r"[.!?\n]+", normalized_text) if len(s.strip()) > 15]
-        for sentence in sentences:
-            s_lower = sentence.lower()
-            dimension = None
-            stance = None
-
-            if any(w in s_lower for w in ["expensive", "bill", "price", "token price", "cost per token", "over budget", "costly"]):
-                dimension = PerceptionDimension.PRICE_SENSITIVITY
-                stance = (
-                    PerceptionStance.NEGATIVE
-                    if any(w in s_lower for w in ["expensive", "too high", "over budget", "insane", "costly"])
-                    else PerceptionStance.POSITIVE
-                )
-            elif any(w in s_lower for w in ["latency", "slow", "ttft", "tokens/sec", "throughput", "timeout", "delay", "blazing fast", "fast"]):
-                dimension = PerceptionDimension.PERFORMANCE
-                stance = (
-                    PerceptionStance.POSITIVE
-                    if any(w in s_lower for w in ["fast", "quick", "sub-100ms", "low latency", "throughput is high"])
-                    else PerceptionStance.NEGATIVE
-                )
-            elif any(w in s_lower for w in ["pain", "broken", "frustrating", "bug", "crash", "outage", "unreliable", "oom", "memory leak"]):
-                dimension = PerceptionDimension.PAIN
-                stance = PerceptionStance.NEGATIVE
-            elif any(w in s_lower for w in ["switched from", "migrated from", "moved to", "replaced with", "leaving"]):
-                dimension = PerceptionDimension.SWITCHING_INTENT
-                stance = PerceptionStance.MIXED
-            elif any(w in s_lower for w in ["wish", "need", "please add", "support for", "missing feature"]):
-                dimension = PerceptionDimension.FEATURE_REQUEST
-                stance = PerceptionStance.NEUTRAL
-            elif any(w in s_lower for w in ["easy to use", "difficult to setup", "setup was smooth", "dx is great", "developer experience"]):
-                dimension = PerceptionDimension.USABILITY
-                stance = (
-                    PerceptionStance.POSITIVE
-                    if any(w in s_lower for w in ["easy", "smooth", "great"])
-                    else PerceptionStance.NEGATIVE
-                )
-            elif any(w in s_lower for w in ["love", "amazing", "huge fan", "best model", "great job", "impressed"]):
-                dimension = PerceptionDimension.PRAISE
-                stance = PerceptionStance.POSITIVE
-
-            if dimension and stance:
-                for subj in subjects:
-                    subj_name = subj.name.lower()
-                    if subj_name in s_lower or any(
-                        a.lower() in s_lower for a in getattr(subj, "attributes", {}).get("aliases", [])
-                    ):
-                        actor = next(
-                            (e for e in resolved.values() if getattr(e, "node_type", None) == NodeType.PERSON), None
-                        )
-                        obs = PerceptionObservation(
-                            subject_id=subj.id,
-                            subject_type=subj.node_type,
-                            dimension=dimension,
-                            stance=stance,
-                            statement=sentence[:400],
-                            evidence_ids=(evidence.id,),
-                            confidence=0.88,
-                            actor_id=actor.id if actor else None,
-                            actor_community=evidence.source_type,
-                            observed_at=evidence.published_at or evidence.retrieved_at,
-                            provenance=Provenance(
-                                source_url=evidence.source_url,
-                                source_type=evidence.source_type,
-                                retrieved_at=evidence.retrieved_at,
-                                published_at=evidence.published_at,
-                                original_reference=sentence[:200],
-                                evidence_ids=(evidence.id,),
-                                confidence=0.88,
-                                extraction_method=ExtractionMethod.DETERMINISTIC,
-                                entity_ids=(subj.id,) if not actor else (subj.id, actor.id),
-                            ),
-                        )
-                        if hasattr(self.repository, "add_perception"):
-                            self.repository.add_perception(obs)
-                        if actor:
-                            try:
-                                self.repository.add_edge(
-                                    GraphEdge(
-                                        edge_type=EdgeType.PERCEIVES,
-                                        from_node_id=actor.id,
-                                        to_node_id=subj.id,
-                                        qualifiers={"dimension": dimension.value, "stance": stance.value},
-                                        recorded_at=datetime.now(UTC),
-                                        provenance=obs.provenance,
-                                    )
-                                )
-                            except Exception:
-                                pass
-                        break
+        for proposal, subject in candidates(normalized_text, resolved):
+            self.memory.record(evidence, normalized, proposal, {"perception_subject": subject},
+                prompt_version=PERCEPTION_VERSION)
+        # Candidates enter the assertion ledger. They do not automatically create
+        # sentiment observations or PERCEIVES edges, and never guess an actor.
 
     @staticmethod
     def _cache_key(
